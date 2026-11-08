@@ -1,0 +1,3 @@
+<%- include('partials/header') %>
+<a class="back" href="/questions/<%= question.id %>">← 質問に戻る</a><section class="panel narrow"><h1>質問を削除しますか？</h1><p>「<%= question.title %>」と、この質問に紐づくすべての回答が削除されます。この操作は取り消せません。</p><form class="actions" method="post" action="/questions/<%= question.id %>/delete"><button class="button danger" type="submit">質問と回答を削除</button><a href="/questions/<%= question.id %>">キャンセル</a></form></section>
+<%- include('partials/footer') %>

@@ -1,0 +1,8 @@
+<%- include('partials/header') %>
+<a class="back" href="/questions">← 質問一覧</a>
+<article class="panel question-detail"><span class="tag"><%= question.category %></span><h1><%= question.title %></h1><div class="meta"><span><%= question.author_name %></span><time><%= date(question.created_at) %></time></div><div class="content"><%= question.content %></div><div class="actions"><a href="/questions/<%= question.id %>/edit">編集する</a><a class="danger-link" href="/questions/<%= question.id %>/delete">削除する</a></div></article>
+<section id="answers"><div class="section-heading"><h2>みんなの回答 <span class="count"><%= answers.length %>件</span></h2></div>
+<% answers.forEach(item => { %><article class="panel answer"><div class="meta"><strong><%= item.author_name %></strong><time><%= date(item.created_at) %></time></div><div class="content"><%= item.content %></div><form method="post" action="/questions/<%= question.id %>/answers/<%= item.id %>/delete"><button class="text-button danger-link" type="submit">この回答を削除</button></form></article><% }) %>
+<% if (!answers.length) { %><p class="empty-small">まだ回答はありません。あなたの知識を共有してみましょう。</p><% } %></section>
+<section class="panel"><h2>回答を書く</h2><p class="subtle">回答は公開されます。ニックネームを使い、個人情報は書かないでください。</p><%- include('partials/errors') %><form class="stack" method="post" action="/questions/<%= question.id %>/answers"><label>名前 <span class="required">必須</span><input name="author_name" required maxlength="50" value="<%= answer.author_name || '' %>" autocomplete="nickname"></label><label>回答の内容 <span class="required">必須</span><textarea name="content" required maxlength="10000" rows="6"><%= answer.content || '' %></textarea></label><button class="button" type="submit">回答を投稿</button></form></section>
+<%- include('partials/footer') %>
