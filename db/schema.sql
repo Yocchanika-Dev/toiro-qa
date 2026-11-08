@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS questions (
   content TEXT NOT NULL CHECK (length(trim(content)) > 0),
   author_name VARCHAR(50) NOT NULL CHECK (length(trim(author_name)) > 0),
   category VARCHAR(20) NOT NULL CHECK (category IN ('授業', '課外活動', 'その他')),
+  status VARCHAR(10) NOT NULL DEFAULT 'unresolved' CHECK (status IN ('unresolved', 'resolved')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

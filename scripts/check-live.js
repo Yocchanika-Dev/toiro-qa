@@ -44,6 +44,7 @@ async function main() {
     assert.equal((await get(first + '/edit')).status, 403);
     assert.equal((await post(first + '/edit', { title: '権限外の編集', content: '内容', category: 'その他' })).status, 403);
     assert.equal((await post(first + '/delete', {})).status, 403);
+    assert.equal((await post(first + '/status', { status: 'resolved' })).status, 403);
     cookie = accountA.cookie; csrf = accountA.csrf;
     let response = await post(first + '/edit', { title: marker + '更新済み', content: '<script>test</script> 検証内容', category: '授業' });
     assert.equal(response.status, 303);
@@ -53,6 +54,17 @@ async function main() {
     for (const content of ['検証用回答1', '検証用回答2']) {
       assert.equal((await post(first + '/answers', { author_name: '回答確認用', content })).status, 303);
     }
+    const listedIds = html => [...html.matchAll(/data-question-id="(\d+)"/g)].map(match => Number(match[1]));
+    const firstId = Number(first.split('/').pop());
+    const secondId = Number(created[1].split('/').pop());
+    assert.deepEqual(listedIds(await (await get('/questions?q=' + encodeURIComponent(marker) + '&sort=answers')).text()), [firstId, secondId]);
+    assert.equal((await post(first + '/status', { status: 'resolved' })).status, 303);
+    assert.ok((await (await get(first)).text()).includes('未解決に戻す'));
+    assert.deepEqual(listedIds(await (await get('/questions?q=' + encodeURIComponent(marker) + '&status=resolved&category=' + encodeURIComponent('授業') + '&sort=answers')).text()), [firstId]);
+    assert.deepEqual(listedIds(await (await get('/questions?q=' + encodeURIComponent(marker) + '&status=unresolved')).text()), [secondId]);
+    assert.equal((await post(first + '/status', { status: 'unresolved' })).status, 303);
+    assert.ok((await (await get(first)).text()).includes('解決済みにする'));
+    assert.equal((await post(first + '/status', { status: 'invalid' })).status, 422);
     html = await (await get(first)).text();
     assert.ok(html.includes('検証用回答1') && html.includes('検証用回答2'));
     assert.ok(!(await (await get(created[1])).text()).includes('検証用回答1'));
@@ -85,7 +97,7 @@ async function main() {
     Object.assign(accountA, { cookie, csrf });
     assert.notEqual(cookie, old.cookie);
     assert.equal((await post('/questions', { _csrf: old.csrf }, { cookie: old.cookie })).status, 401);
-    console.log('公開環境：基本CRUD・検索に加え、登録・ログイン・Secure Session・CSRF・2ユーザー間の権限制御・ログアウトによる失効を確認。');
+    console.log('公開環境：基本CRUD・認証・権限制御に加え、状態の双方向変更・複合絞り込み・回答件数順を確認。');
     assert.equal((await post(first + '/delete', {})).status, 303);
     assert.equal((await get(first)).status, 404);
     assert.equal((await post(remainingAnswer, {})).status, 404);

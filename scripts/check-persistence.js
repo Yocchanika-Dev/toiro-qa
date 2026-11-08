@@ -39,6 +39,8 @@ async function main() {
     const result = await fetch(origin + '/questions', { method: 'POST', redirect: 'manual', headers: { origin, cookie }, body: new URLSearchParams({ _csrf: csrf, title: marker, content: 'アプリ再起動後の保存確認', category: 'その他' }) });
     assert.equal(result.status, 303);
     const location = result.headers.get('location');
+    const changed = await fetch(origin + location + '/status', { method: 'POST', redirect: 'manual', headers: { origin, cookie }, body: new URLSearchParams({ _csrf: csrf, status: 'resolved' }) });
+    assert.equal(changed.status, 303);
     await stop();
     await start();
     const response = await fetch(origin + location, { headers: { cookie } });
@@ -47,7 +49,8 @@ async function main() {
     assert.ok(detail.includes(marker));
     assert.ok(detail.includes('ログアウト'));
     assert.ok(detail.includes('編集する'));
-    console.log('実PostgreSQL：アプリ再起動後も質問・ログインSession・本人権限が保持されることを確認しました。');
+    assert.ok(detail.includes('未解決に戻す'));
+    console.log('実PostgreSQL：アプリ再起動後も質問・解決状態・ログインSession・本人権限が保持されることを確認しました。');
   } finally {
     await stop();
     await pool.query('DELETE FROM questions WHERE title=$1', [marker]);

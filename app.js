@@ -39,6 +39,8 @@ function createApp(pool) {
   app.get('/questions', async (req, res) => {
     const keyword = text(req.query.q).slice(0, 150);
     const category = text(req.query.category);
+    const status = ['unresolved', 'resolved'].includes(req.query.status) ? req.query.status : '';
+    const sort = req.query.sort === 'answers' ? 'answers' : 'newest';
     const values = [];
     const where = [];
     if (keyword) {
@@ -47,8 +49,11 @@ function createApp(pool) {
       where.push(`(q.title ILIKE $${values.length} OR q.content ILIKE $${values.length})`);
     }
     if (categories.includes(category)) { values.push(category); where.push(`q.category = $${values.length}`); }
-    const { rows } = await pool.query(`SELECT q.*, COALESCE(a.answer_count, 0) AS answer_count FROM questions q LEFT JOIN (SELECT question_id, count(*) AS answer_count FROM answers GROUP BY question_id) a ON a.question_id=q.id ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY q.created_at DESC, q.id DESC`, values);
-    res.render('index', { title: '質問一覧', questions: rows, keyword, category });
+    if (status) { values.push(status); where.push(`q.status = $${values.length}`); }
+    // 並べ替え条件は固定SQLから選ぶ。リクエスト文字列はSQLへ連結しない。
+    const order = sort === 'answers' ? 'answer_count DESC, q.created_at DESC, q.id DESC' : 'q.created_at DESC, q.id DESC';
+    const { rows } = await pool.query(`SELECT q.*, COALESCE(a.answer_count, 0) AS answer_count FROM questions q LEFT JOIN (SELECT question_id, count(*) AS answer_count FROM answers GROUP BY question_id) a ON a.question_id=q.id ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY ${order}`, values);
+    res.render('index', { title: '質問一覧', questions: rows, keyword, category, status, sort });
   });
   app.get('/questions/new', requireUser, (req, res) => res.render('form', { title: '質問する', question: {}, errors: [], editing: false }));
 
@@ -89,6 +94,16 @@ function createApp(pool) {
     if (!question) return missing(res);
     if (question.user_id !== req.user.id) return forbidden(res);
     res.render('form', { title: '質問を編集', question, errors: [], editing: true });
+  });
+  // 解決状態は質問者本人だけが変更できる。新規質問の初期値はDBで未解決。
+  app.post('/questions/:id/status', requireUser, async (req, res) => {
+    const question = await getQuestion(req.params.id);
+    if (!question) return missing(res);
+    if (question.user_id !== req.user.id) return forbidden(res);
+    if (!['unresolved', 'resolved'].includes(req.body.status)) return res.status(422).render('error', { title: '状態を変更できません', message: '未解決または解決済みを選択してください。' });
+    const result = await pool.query('UPDATE questions SET status=$1, updated_at=CURRENT_TIMESTAMP WHERE id=$2 AND user_id=$3 RETURNING id', [req.body.status, question.id, req.user.id]);
+    if (!result.rows.length) return missing(res);
+    res.redirect(303, `/questions/${question.id}`);
   });
   // Update：URLのIDで対象を特定。投稿者名は元の値を保持する。
   app.post('/questions/:id/edit', requireUser, async (req, res) => {

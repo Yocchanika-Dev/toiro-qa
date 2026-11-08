@@ -62,9 +62,10 @@ test('質問・回答・検索・削除連動とエラー処理', async t => {
   response = await post('/questions', { title: ' ', content: ' ', category: '不正' });
   assert.equal(response.status, 422);
   assert.equal((await pool.query('SELECT * FROM questions')).rows.length, 0);
-  response = await post('/questions', { title: '<script>alert(1)</script>', content: 'Expressの質問', author_name: 'テスト', category: '授業' });
+  response = await post('/questions', { title: '<script>alert(1)</script>', content: 'Expressの質問', author_name: 'テスト', category: '授業', status: 'resolved' });
   assert.equal(response.status, 303);
   const url = response.headers.get('location');
+  assert.equal((await pool.query('SELECT status FROM questions WHERE id=$1', [url.split('/').pop()])).rows[0].status, 'unresolved');
   response = await get(url);
   const html = await response.text();
   assert.match(html, /&lt;script&gt;/);
@@ -82,6 +83,22 @@ test('質問・回答・検索・削除連動とエラー処理', async t => {
   response = await post('/questions', { title: '別の質問', content: '別内容', author_name: '別の人', category: '課外活動' });
   const other = response.headers.get('location');
   const otherId = Number(other.split('/').pop());
+  const listedIds = html => [...html.matchAll(/data-question-id="(\d+)"/g)].map(match => Number(match[1]));
+  assert.deepEqual(listedIds(await (await get('/questions?sort=answers')).text()), [Number(url.split('/').pop()), otherId]);
+  await pool.query("INSERT INTO answers(question_id,author_name,content) VALUES ($1,'比較用','比較回答1'),($1,'比較用','比較回答2')", [otherId]);
+  assert.deepEqual(listedIds(await (await get('/questions?sort=answers')).text()), [otherId, Number(url.split('/').pop())]);
+  await pool.query('DELETE FROM answers WHERE question_id=$1', [otherId]);
+  assert.deepEqual(listedIds(await (await get('/questions?sort=invalid')).text()), [otherId, Number(url.split('/').pop())]);
+  assert.equal((await post(url + '/status', { status: 'resolved' })).status, 303);
+  assert.equal((await pool.query('SELECT status FROM questions WHERE id=$1', [url.split('/').pop()])).rows[0].status, 'resolved');
+  assert.match(await (await get(url)).text(), /未解決に戻す/);
+  assert.deepEqual(listedIds(await (await get('/questions?status=resolved&sort=answers')).text()), [Number(url.split('/').pop())]);
+  assert.deepEqual(listedIds(await (await get('/questions?status=unresolved')).text()), [otherId]);
+  assert.deepEqual(listedIds(await (await get('/questions?q=DB&category=' + encodeURIComponent('その他') + '&status=resolved&sort=answers')).text()), [Number(url.split('/').pop())]);
+  assert.equal((await post(url + '/status', { status: 'unresolved' })).status, 303);
+  assert.match(await (await get(url)).text(), /解決済みにする/);
+  assert.equal((await post(url + '/status', { status: 'invalid' })).status, 422);
+  assert.equal((await pool.query('SELECT status FROM questions WHERE id=$1', [url.split('/').pop()])).rows[0].status, 'unresolved');
   response = await get(other); assert.doesNotMatch(await response.text(), /回答その1/);
   response = await get('/questions?q=DB&category=' + encodeURIComponent('その他'));
   assert.equal(response.status, 200);
@@ -104,6 +121,9 @@ test('質問・回答・検索・削除連動とエラー処理', async t => {
   const accountB = { cookie, csrf };
   const strangerPage = await (await get(url)).text();
   assert.doesNotMatch(strangerPage, /編集する|この回答を削除/);
+  assert.doesNotMatch(strangerPage, /解決済みにする/);
+  assert.equal((await post(url + '/status', { status: 'resolved' })).status, 403);
+  assert.equal((await pool.query('SELECT status FROM questions WHERE id=$1', [url.split('/').pop()])).rows[0].status, 'unresolved');
   for (const suffix of ['/edit', '/delete']) {
     assert.equal((await get(url + suffix)).status, 403);
     assert.equal((await post(url + suffix, { title: '不正な変更', content: '内容', category: '授業', user_id: user.id })).status, 403);
@@ -151,4 +171,13 @@ test('質問・回答・検索・削除連動とエラー処理', async t => {
   assert.equal((await post('/questions', { title: '削除済みユーザー' })).status, 401);
   assert.equal((await pool.query("SELECT * FROM users WHERE login_id='tester_b'")).rows.length, 0);
   assert.equal((await pool.query("SELECT * FROM users WHERE login_id='tester_a'")).rows.length, 1);
+  if (process.env.TEST_DATABASE_URL) {
+    // 旧スキーマからの追加変更でも、既存の質問内容・所有者を保持する。
+    const before = (await pool.query('SELECT id,title,user_id FROM questions ORDER BY id')).rows;
+    await pool.query('ALTER TABLE questions DROP COLUMN status');
+    await pool.query(fs.readFileSync(path.join(__dirname, '../db/status-migration.sql'), 'utf8'));
+    await pool.query(fs.readFileSync(path.join(__dirname, '../db/status-migration.sql'), 'utf8'));
+    assert.deepEqual((await pool.query('SELECT id,title,user_id FROM questions ORDER BY id')).rows, before);
+    assert.ok((await pool.query('SELECT status FROM questions')).rows.every(row => row.status === 'unresolved'));
+  }
 });
