@@ -51,7 +51,7 @@ HTTP経由で質問CRUD・回答・検索・別質問への回答混入防止・
 
 Node.jsプロセスを実行できるホスティングとPostgreSQLを用意する。起動コマンドは `npm start`、初期化は `npm run db:init`。環境変数 `DATABASE_URL`、`APP_ORIGIN`（公開URL、末尾スラッシュなし）、必要に応じ `PORT` を設定する。接続TLSはプロバイダーの正式な接続文字列・証明書設定に従い、証明書検証を無効化しない。
 
-公開後は `/health` と、CRUD・検索・回答を確認する。GitHub作成・プッシュと公開デプロイは未実施。
+公開後は `/health` と、CRUD・検索・回答を確認する。ソースコードはGitHub公開済み。Vercelへのデプロイはログイン待ち。
 
 Vercel向けエントリーポイントは `api/index.js`。専用の公開PostgreSQL接続先を環境変数 `DATABASE_URL` に設定する。ローカルの `.env` や `.local` をアップロードしない。ローカルのDBはVercelから接続できない。投稿時の名前はニックネームを使用する。
 
