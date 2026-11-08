@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="ja">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title><%= title %> | といろ</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/auth.css"><link rel="stylesheet" href="/questions.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title><%= title %> | といろ</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/auth.css"><link rel="stylesheet" href="/questions.css"><link rel="stylesheet" href="/best-answer.css"></head>
 <body>
 <header class="site-header"><a class="brand" href="/questions"><span class="brand-mark">Q</span>といろ<span class="brand-caption">学びをつなぐ Q&A</span></a><nav class="header-actions" aria-label="アカウント"><% if (currentUser) { %><a class="nickname" href="/account"><%= currentUser.display_name %></a><form method="post" action="/logout"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="text-button" type="submit">ログアウト</button></form><a class="button" href="/questions/new">＋ 質問する</a><% } else { %><a href="/login">ログイン</a><a class="button" href="/register">新規登録</a><% } %></nav></header>
 <main>

@@ -1,6 +1,7 @@
 // 公開環境の動作検証。今回作成した検証用投稿だけを最後に削除する。
 const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
+const { setTimeout: delay } = require('node:timers/promises');
 const origin = process.env.PUBLIC_BASE_URL;
 if (!origin || !origin.startsWith('https://')) throw new Error('PUBLIC_BASE_URLに検証対象のHTTPS URLを指定してください。');
 const marker = `動作検証-${randomUUID()}`;
@@ -54,6 +55,30 @@ async function main() {
     for (const content of ['検証用回答1', '検証用回答2']) {
       assert.equal((await post(first + '/answers', { author_name: '回答確認用', content })).status, 303);
     }
+    const answerIds = [...(await (await get(first)).text()).matchAll(/data-answer-id="(\d+)"/g)].map(match => match[1]);
+    assert.equal(answerIds.length, 2);
+    assert.equal((await post(first + '/best-answer', { answer_id: answerIds[0] })).status, 303);
+    let selectedPage = await (await get(first)).text();
+    assert.equal((selectedPage.match(/class="panel answer best-answer"/g) || []).length, 1);
+    assert.ok(selectedPage.includes('質問者が選んだ回答'));
+    if (process.env.LIVE_SCREENSHOT === '1') {
+      assert.equal((await post(first + '/edit', { title: '役立った回答をベストアンサーに選ぶには？', content: '質問者は回答を1つ選べます。選び直しや解除もできます。', category: '授業' })).status, 303);
+      console.log('画面確認URL: ' + origin + first + '#answers');
+      await delay(30000);
+      assert.equal((await post(first + '/edit', { title: marker + '更新済み', content: '<script>test</script> 検証内容', category: '授業' })).status, 303);
+    }
+    assert.equal((await post(first + '/best-answer', { answer_id: answerIds[1] })).status, 303);
+    assert.equal(((await (await get(first)).text()).match(/class="panel answer best-answer"/g) || []).length, 1);
+    assert.equal((await post(first + '/best-answer', { answer_id: '' })).status, 303);
+    assert.equal(((await (await get(first)).text()).match(/class="panel answer best-answer"/g) || []).length, 0);
+    assert.equal((await post(created[1] + '/best-answer', { answer_id: answerIds[0] })).status, 404);
+    assert.equal((await post(first + '/best-answer', { answer_id: 'invalid' })).status, 422);
+    cookie = accounts[1].cookie; csrf = accounts[1].csrf;
+    assert.equal((await post(first + '/best-answer', { answer_id: answerIds[0] })).status, 403);
+    assert.equal((await post(first + '/best-answer', { answer_id: '' })).status, 403);
+    assert.ok(!(await (await get(first)).text()).includes('ベストアンサーに選ぶ'));
+    cookie = accountA.cookie; csrf = accountA.csrf;
+    assert.equal((await post(first + '/best-answer', { answer_id: answerIds[0] })).status, 303);
     const listedIds = html => [...html.matchAll(/data-question-id="(\d+)"/g)].map(match => Number(match[1]));
     const firstId = Number(first.split('/').pop());
     const secondId = Number(created[1].split('/').pop());
@@ -77,8 +102,10 @@ async function main() {
     assert.ok(answer);
     assert.equal((await post(answer, {})).status, 303);
     assert.ok(!(await (await get(first)).text()).includes('検証用回答1'));
+    assert.equal(((await (await get(first)).text()).match(/class="panel answer best-answer"/g) || []).length, 0);
     const remainingAnswer = answerPath(await (await get(first)).text());
     assert.ok(remainingAnswer);
+    assert.equal((await post(first + '/best-answer', { answer_id: answerIds[1] })).status, 303);
     cookie = accounts[1].cookie; csrf = accounts[1].csrf;
     assert.ok(!(await (await get(first)).text()).includes('この回答を削除'));
     assert.equal((await post(remainingAnswer, {})).status, 403);
@@ -97,7 +124,7 @@ async function main() {
     Object.assign(accountA, { cookie, csrf });
     assert.notEqual(cookie, old.cookie);
     assert.equal((await post('/questions', { _csrf: old.csrf }, { cookie: old.cookie })).status, 401);
-    console.log('公開環境：基本CRUD・認証・権限制御に加え、状態の双方向変更・複合絞り込み・回答件数順を確認。');
+    console.log('公開環境：既存機能に加え、ベストアンサーの選択・変更・解除、本人権限、別質問の回答選択拒否、削除連動を確認。');
     assert.equal((await post(first + '/delete', {})).status, 303);
     assert.equal((await get(first)).status, 404);
     assert.equal((await post(remainingAnswer, {})).status, 404);

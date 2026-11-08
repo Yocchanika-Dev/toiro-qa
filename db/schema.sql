@@ -28,6 +28,12 @@ CREATE TABLE IF NOT EXISTS answers (
 );
 CREATE INDEX IF NOT EXISTS questions_created_idx ON questions(created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS answers_question_idx ON answers(question_id);
+CREATE UNIQUE INDEX IF NOT EXISTS answers_question_id_id_idx ON answers(question_id,id);
+CREATE TABLE IF NOT EXISTS best_answers (
+  question_id INTEGER PRIMARY KEY REFERENCES questions(id) ON DELETE CASCADE,
+  answer_id INTEGER NOT NULL,
+  FOREIGN KEY (question_id,answer_id) REFERENCES answers(question_id,id) ON DELETE CASCADE
+);
 CREATE TABLE IF NOT EXISTS user_sessions (
   token_hash VARCHAR(64) PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

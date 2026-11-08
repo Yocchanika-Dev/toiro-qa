@@ -43,6 +43,7 @@ test('質問・回答・検索・削除連動とエラー処理', async t => {
   assert.equal(response.status, 200);
   assert.match(await response.text(), /まだ質問がありません/);
   assert.equal((await post('/questions', { title: '未認証' })).status, 401);
+  assert.equal((await post('/questions/1/best-answer', { answer_id: '1' })).status, 401);
   assert.equal((await get('/questions/new')).status, 303);
   assert.equal((await fetch(base + '/login', { method: 'POST', body: new URLSearchParams({}) })).status, 403);
   response = await post('/register', { login_id: 'tester_a', display_name: 'テスト', password: 'Test-password-123!', password_confirm: 'Test-password-123!' });
@@ -114,6 +115,26 @@ test('質問・回答・検索・削除連動とエラー処理', async t => {
   response = await get('/questions');
   const listing = await response.text(); assert.ok(listing.indexOf('別の質問') < listing.indexOf('DBの質問'));
   const answers = (await pool.query('SELECT * FROM answers ORDER BY id')).rows;
+  assert.equal((await post(url + '/best-answer', { answer_id: answers[0].id })).status, 303);
+  assert.equal((await pool.query('SELECT * FROM best_answers')).rows[0].answer_id, answers[0].id);
+  assert.equal((await (await get(url)).text()).match(/class="panel answer best-answer"/g).length, 1);
+  assert.equal((await post(url + '/best-answer', { answer_id: answers[1].id })).status, 303);
+  assert.equal((await pool.query('SELECT * FROM best_answers')).rows.length, 1);
+  assert.equal((await pool.query('SELECT * FROM best_answers')).rows[0].answer_id, answers[1].id);
+  assert.equal((await post(other + '/best-answer', { answer_id: answers[0].id })).status, 404);
+  assert.equal((await post(url + '/best-answer', { answer_id: '999999' })).status, 404);
+  assert.equal((await post(url + '/best-answer', { answer_id: 'invalid' })).status, 422);
+  assert.equal((await post(url + '/best-answer', { answer_id: answers[0].id, _csrf: 'invalid' })).status, 403);
+  assert.equal((await post(url + '/best-answer', { answer_id: '' })).status, 303);
+  assert.equal((await pool.query('SELECT * FROM best_answers')).rows.length, 0);
+  const simultaneous = await Promise.all(answers.map(answer => post(url + '/best-answer', { answer_id: answer.id })));
+  assert.ok(simultaneous.every(result => result.status === 303));
+  assert.equal((await pool.query('SELECT * FROM best_answers')).rows.length, 1);
+  assert.equal((await post(url + '/best-answer', { answer_id: answers[0].id })).status, 303);
+  assert.equal((await post(url + '/answers', { content: '' })).status, 422);
+  assert.equal((await (await get(url)).text()).match(/class="panel answer best-answer"/g).length, 1);
+  assert.equal((await pool.query('SELECT status FROM questions WHERE id=$1', [answers[0].question_id])).rows[0].status, 'unresolved');
+  if (process.env.TEST_DATABASE_URL) await assert.rejects(pool.query('INSERT INTO best_answers(question_id,answer_id) VALUES ($1,$2)', [otherId, answers[0].id]), error => error.code === '23503');
   // 別ユーザーは画面にも操作ボタンが出ず、直接POSTしても変更できない。
   cookie = ''; csrf = '';
   response = await post('/register', { login_id: 'tester_b', display_name: '別ユーザー', password: 'Other-password-456!', password_confirm: 'Other-password-456!' });
@@ -122,6 +143,10 @@ test('質問・回答・検索・削除連動とエラー処理', async t => {
   const strangerPage = await (await get(url)).text();
   assert.doesNotMatch(strangerPage, /編集する|この回答を削除/);
   assert.doesNotMatch(strangerPage, /解決済みにする/);
+  assert.match(strangerPage, /質問者が選んだ回答/);
+  assert.doesNotMatch(strangerPage, /ベストアンサーに選ぶ|ベストアンサーを解除/);
+  assert.equal((await post(url + '/best-answer', { answer_id: answers[1].id })).status, 403);
+  assert.equal((await post(url + '/best-answer', { answer_id: '' })).status, 403);
   assert.equal((await post(url + '/status', { status: 'resolved' })).status, 403);
   assert.equal((await pool.query('SELECT status FROM questions WHERE id=$1', [url.split('/').pop()])).rows[0].status, 'unresolved');
   for (const suffix of ['/edit', '/delete']) {
@@ -137,10 +162,18 @@ test('質問・回答・検索・削除連動とエラー処理', async t => {
   assert.equal((await pool.query('SELECT * FROM answers')).rows.length, 2);
   response = await post(url + '/answers/' + answers[0].id + '/delete', {});
   assert.equal(response.status, 303);
+  assert.equal((await pool.query('SELECT * FROM best_answers')).rows.length, 0);
+  assert.equal((await post(url + '/best-answer', { answer_id: answers[1].id })).status, 303);
   response = await get(url + '/delete'); assert.match(await response.text(), /この操作は取り消せません/);
   response = await post(url + '/delete', {}); assert.equal(response.status, 303);
   assert.equal((await pool.query('SELECT * FROM answers')).rows.length, 0);
+  assert.equal((await pool.query('SELECT * FROM best_answers')).rows.length, 0);
   assert.equal((await pool.query('SELECT * FROM questions')).rows[0].id, otherId);
+  cookie = accountB.cookie; csrf = accountB.csrf;
+  assert.equal((await post(other + '/answers', { content: '別ユーザーの回答' })).status, 303);
+  const thirdPartyAnswer = (await pool.query('SELECT id FROM answers WHERE question_id=$1', [otherId])).rows[0];
+  cookie = accountA.cookie; csrf = accountA.csrf;
+  assert.equal((await post(other + '/best-answer', { answer_id: thirdPartyAnswer.id })).status, 303);
   for (const target of [url, '/questions/abc', '/questions/999999999999999999999', '/missing']) {
     assert.equal((await get(target)).status, 404);
   }
@@ -171,6 +204,8 @@ test('質問・回答・検索・削除連動とエラー処理', async t => {
   assert.equal((await post('/questions', { title: '削除済みユーザー' })).status, 401);
   assert.equal((await pool.query("SELECT * FROM users WHERE login_id='tester_b'")).rows.length, 0);
   assert.equal((await pool.query("SELECT * FROM users WHERE login_id='tester_a'")).rows.length, 1);
+  assert.equal((await pool.query('SELECT * FROM best_answers')).rows.length, 0);
+  assert.equal((await pool.query('SELECT * FROM questions WHERE id=$1', [otherId])).rows.length, 1);
   if (process.env.TEST_DATABASE_URL) {
     // 旧スキーマからの追加変更でも、既存の質問内容・所有者を保持する。
     const before = (await pool.query('SELECT id,title,user_id FROM questions ORDER BY id')).rows;
@@ -179,5 +214,8 @@ test('質問・回答・検索・削除連動とエラー処理', async t => {
     await pool.query(fs.readFileSync(path.join(__dirname, '../db/status-migration.sql'), 'utf8'));
     assert.deepEqual((await pool.query('SELECT id,title,user_id FROM questions ORDER BY id')).rows, before);
     assert.ok((await pool.query('SELECT status FROM questions')).rows.every(row => row.status === 'unresolved'));
+    await pool.query(fs.readFileSync(path.join(__dirname, '../db/best-answer-migration.sql'), 'utf8'));
+    await pool.query(fs.readFileSync(path.join(__dirname, '../db/best-answer-migration.sql'), 'utf8'));
+    assert.deepEqual((await pool.query('SELECT id,title,user_id FROM questions ORDER BY id')).rows, before);
   }
 });

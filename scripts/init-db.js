@@ -9,6 +9,7 @@ async function main() {
     await pool.query(sql);
     await pool.query(await fs.readFile(path.join(__dirname, '../db/auth-migration.sql'), 'utf8'));
     await pool.query(await fs.readFile(path.join(__dirname, '../db/status-migration.sql'), 'utf8'));
+    await pool.query(await fs.readFile(path.join(__dirname, '../db/best-answer-migration.sql'), 'utf8'));
     console.log('テーブルを作成しました。既存データは保持されます。');
   } finally { await pool.end(); }
 }

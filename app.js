@@ -73,6 +73,9 @@ function createApp(pool) {
     if (!validId(id)) return null;
     return (await pool.query('SELECT * FROM questions WHERE id=$1', [id])).rows[0];
   }
+  async function getAnswers(questionId) {
+    return (await pool.query('SELECT a.*, (b.answer_id IS NOT NULL) AS is_best FROM answers a LEFT JOIN best_answers b ON b.question_id=a.question_id AND b.answer_id=a.id WHERE a.question_id=$1 ORDER BY a.created_at,a.id', [questionId])).rows;
+  }
   function missing(res) { return res.status(404).render('error', { title: '質問が見つかりません', message: '質問は削除されたか、URLが間違っています。' }); }
   function forbidden(res) { return res.status(403).render('error', { title: '操作できません', message: '自分の投稿だけを編集・削除できます。' }); }
 
@@ -86,8 +89,7 @@ function createApp(pool) {
   app.get('/questions/:id', async (req, res) => {
     const question = await getQuestion(req.params.id);
     if (!question) return missing(res);
-    const { rows } = await pool.query('SELECT * FROM answers WHERE question_id=$1 ORDER BY created_at, id', [question.id]);
-    res.render('detail', { title: question.title, question, answers: rows, errors: [], answer: {} });
+    res.render('detail', { title: question.title, question, answers: await getAnswers(question.id), errors: [], answer: {} });
   });
   app.get('/questions/:id/edit', requireUser, async (req, res) => {
     const question = await getQuestion(req.params.id);
@@ -104,6 +106,26 @@ function createApp(pool) {
     const result = await pool.query('UPDATE questions SET status=$1, updated_at=CURRENT_TIMESTAMP WHERE id=$2 AND user_id=$3 RETURNING id', [req.body.status, question.id, req.user.id]);
     if (!result.rows.length) return missing(res);
     res.redirect(303, `/questions/${question.id}`);
+  });
+  app.post('/questions/:id/best-answer', requireUser, async (req, res) => {
+    const question = await getQuestion(req.params.id);
+    if (!question) return missing(res);
+    if (question.user_id !== req.user.id) return forbidden(res);
+    if (req.body.answer_id === '') {
+      await pool.query('DELETE FROM best_answers WHERE question_id=$1', [question.id]);
+    } else {
+      if (typeof req.body.answer_id !== 'string' || !validId(req.body.answer_id)) return res.status(422).render('error', { title: '回答を選択できません', message: 'この質問への回答を選択してください。' });
+      const answer = (await pool.query('SELECT id FROM answers WHERE id=$1 AND question_id=$2', [req.body.answer_id, question.id])).rows[0];
+      if (!answer) return res.status(404).render('error', { title: '回答が見つかりません', message: 'この質問への回答を選択してください。' });
+      try {
+        await pool.query('INSERT INTO best_answers(question_id,answer_id) VALUES ($1,$2) ON CONFLICT(question_id) DO UPDATE SET answer_id=EXCLUDED.answer_id', [question.id, answer.id]);
+      } catch (error) {
+        // 選択と同時に質問や回答が削除された場合も整合性を保つ。
+        if (error.code === '23503') return missing(res);
+        throw error;
+      }
+    }
+    res.redirect(303, `/questions/${question.id}#answers`);
   });
   // Update：URLのIDで対象を特定。投稿者名は元の値を保持する。
   app.post('/questions/:id/edit', requireUser, async (req, res) => {
@@ -136,8 +158,7 @@ function createApp(pool) {
     if (!question) return missing(res);
     const { data, errors } = validate({ ...req.body, author_name: req.user.display_name }, false);
     if (errors.length) {
-      const { rows } = await pool.query('SELECT * FROM answers WHERE question_id=$1 ORDER BY created_at, id', [question.id]);
-      return res.status(422).render('detail', { title: question.title, question, answers: rows, errors, answer: data });
+      return res.status(422).render('detail', { title: question.title, question, answers: await getAnswers(question.id), errors, answer: data });
     }
     await pool.query('INSERT INTO answers (question_id, author_name, content, user_id) VALUES ($1,$2,$3,$4)', [question.id, data.author_name, data.content, req.user.id]);
     res.redirect(303, `/questions/${question.id}#answers`);
