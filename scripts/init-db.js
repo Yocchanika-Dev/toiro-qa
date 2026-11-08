@@ -7,6 +7,7 @@ async function main() {
   try {
     const sql = await fs.readFile(path.join(__dirname, '../db/schema.sql'), 'utf8');
     await pool.query(sql);
+    await pool.query(await fs.readFile(path.join(__dirname, '../db/auth-migration.sql'), 'utf8'));
     console.log('テーブルを作成しました。既存データは保持されます。');
   } finally { await pool.end(); }
 }

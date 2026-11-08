@@ -2,7 +2,8 @@
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   display_name VARCHAR(50) NOT NULL,
-  email VARCHAR(254) UNIQUE NOT NULL,
+  email VARCHAR(254) UNIQUE,
+  login_id VARCHAR(32) UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -26,3 +27,14 @@ CREATE TABLE IF NOT EXISTS answers (
 );
 CREATE INDEX IF NOT EXISTS questions_created_idx ON questions(created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS answers_question_idx ON answers(question_id);
+CREATE TABLE IF NOT EXISTS user_sessions (
+  token_hash VARCHAR(64) PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS user_sessions_expires_idx ON user_sessions(expires_at);
+CREATE TABLE IF NOT EXISTS auth_attempts (
+  key_hash VARCHAR(64) PRIMARY KEY,
+  attempts INTEGER NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL
+);

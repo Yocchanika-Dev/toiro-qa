@@ -2,8 +2,9 @@
 <a class="back" href="<%= editing ? '/questions/' + question.id : '/questions' %>">← <%= editing ? '質問に戻る' : '質問一覧' %></a>
 <section class="page-heading"><p class="eyebrow">ASK THE COMMUNITY</p><h1><%= title %></h1><p>どこで困っているか、試したことも添えると伝わりやすくなります。</p><p>投稿は公開されます。名前はニックネームを使い、個人情報は書かないでください。</p></section>
 <section class="panel narrow"><%- include('partials/errors') %><form class="stack" method="post" action="<%= editing ? '/questions/' + question.id + '/edit' : '/questions' %>">
+<input type="hidden" name="_csrf" value="<%= csrfToken %>">
 <label>タイトル <span class="required">必須</span><input name="title" required maxlength="150" value="<%= question.title || '' %>" placeholder="質問をひとことで（150文字以内）"></label>
-<% if (!editing) { %><label>名前 <span class="required">必須</span><input name="author_name" required maxlength="50" value="<%= question.author_name || '' %>" autocomplete="nickname" placeholder="表示する名前"></label><% } %>
+<p class="subtle">投稿者：<%= currentUser.display_name %></p>
 <label>カテゴリ <span class="required">必須</span><select name="category" required><option value="">選択してください</option><% categories.forEach(item => { %><option <%= question.category === item ? 'selected' : '' %>><%= item %></option><% }) %></select></label>
 <label>質問の内容 <span class="required">必須</span><textarea name="content" required maxlength="10000" rows="10" placeholder="知りたいことや、今の状況を書いてください"><%= question.content || '' %></textarea></label>
 <div class="actions"><button class="button" type="submit"><%= editing ? '変更を保存' : '質問を投稿' %></button><a class="subtle" href="<%= editing ? '/questions/' + question.id : '/questions' %>">キャンセル</a></div></form></section>

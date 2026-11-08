@@ -28,12 +28,37 @@ test('質問・回答・検索・削除連動とエラー処理', async t => {
   const server = createApp(pool).listen(0, '127.0.0.1');
   await new Promise(resolve => server.once('listening', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
+  const previousOrigin = process.env.APP_ORIGIN;
+  process.env.APP_ORIGIN = base;
+  t.after(() => { if (previousOrigin === undefined) delete process.env.APP_ORIGIN; else process.env.APP_ORIGIN = previousOrigin; });
   t.after(async () => { await new Promise(resolve => server.close(resolve)); });
-  const get = url => fetch(base + url);
-  const post = (url, data, headers = {}) => fetch(base + url, { method: 'POST', body: new URLSearchParams(data), redirect: 'manual', headers });
+  let cookie = '', csrf = '';
+  const get = url => fetch(base + url, { headers: { cookie }, redirect: 'manual' });
+  const post = (url, data, headers = {}) => fetch(base + url, { method: 'POST', body: new URLSearchParams({ _csrf: csrf, ...data }), redirect: 'manual', headers: { cookie, origin: base, ...headers } });
+  async function adopt(response) {
+    cookie = response.headers.get('set-cookie').split(';')[0];
+    csrf = (await (await get('/questions')).text()).match(/name="_csrf" value="([a-f0-9]+)"/)[1];
+  }
   let response = await get('/questions');
   assert.equal(response.status, 200);
   assert.match(await response.text(), /まだ質問がありません/);
+  assert.equal((await post('/questions', { title: '未認証' })).status, 401);
+  assert.equal((await get('/questions/new')).status, 303);
+  assert.equal((await fetch(base + '/login', { method: 'POST', body: new URLSearchParams({}) })).status, 403);
+  response = await post('/register', { login_id: 'tester_a', display_name: 'テスト', password: 'Test-password-123!', password_confirm: 'Test-password-123!' });
+  assert.equal(response.status, 303);
+  assert.match(response.headers.get('set-cookie'), /HttpOnly/);
+  assert.match(response.headers.get('set-cookie'), /SameSite=Lax/);
+  await adopt(response);
+  const accountA = { cookie, csrf };
+  const user = (await pool.query('SELECT * FROM users')).rows[0];
+  assert.equal(user.email, null);
+  assert.match(user.password_hash, /^scrypt\$/);
+  assert.ok(!user.password_hash.includes('Test-password-123!'));
+  const token = cookie.split('=')[1];
+  assert.notEqual((await pool.query('SELECT * FROM user_sessions')).rows[0].token_hash, token);
+  response = await post('/register', { login_id: 'tester_a', display_name: '重複', password: 'Test-password-123!', password_confirm: 'Test-password-123!' });
+  assert.equal(response.status, 422);
   response = await post('/questions', { title: ' ', content: ' ', category: '不正' });
   assert.equal(response.status, 422);
   assert.equal((await pool.query('SELECT * FROM questions')).rows.length, 0);
@@ -72,6 +97,21 @@ test('質問・回答・検索・削除連動とエラー処理', async t => {
   response = await get('/questions');
   const listing = await response.text(); assert.ok(listing.indexOf('別の質問') < listing.indexOf('DBの質問'));
   const answers = (await pool.query('SELECT * FROM answers ORDER BY id')).rows;
+  // 別ユーザーは画面にも操作ボタンが出ず、直接POSTしても変更できない。
+  cookie = ''; csrf = '';
+  response = await post('/register', { login_id: 'tester_b', display_name: '別ユーザー', password: 'Other-password-456!', password_confirm: 'Other-password-456!' });
+  assert.equal(response.status, 303); await adopt(response);
+  const accountB = { cookie, csrf };
+  const strangerPage = await (await get(url)).text();
+  assert.doesNotMatch(strangerPage, /編集する|この回答を削除/);
+  for (const suffix of ['/edit', '/delete']) {
+    assert.equal((await get(url + suffix)).status, 403);
+    assert.equal((await post(url + suffix, { title: '不正な変更', content: '内容', category: '授業', user_id: user.id })).status, 403);
+  }
+  assert.equal((await post(url + '/answers/' + answers[0].id + '/delete', {})).status, 403);
+  assert.equal((await pool.query('SELECT * FROM answers')).rows.length, 2);
+  assert.equal((await post('/questions', { title: 'CSRF', _csrf: 'invalid' })).status, 403);
+  cookie = accountA.cookie; csrf = accountA.csrf;
   response = await post(other + '/answers/' + answers[0].id + '/delete', {});
   assert.equal(response.status, 404);
   assert.equal((await pool.query('SELECT * FROM answers')).rows.length, 2);
@@ -86,4 +126,29 @@ test('質問・回答・検索・削除連動とエラー処理', async t => {
   }
   response = await post(other + '/delete', {}, { origin: 'https://example.com' }); assert.equal(response.status, 403);
   assert.equal((await get(other)).status, 200);
+  // ログアウト後は盗まれた古いCookieを再送しても利用できない。
+  assert.equal((await post('/logout', {})).status, 303);
+  assert.equal((await post('/questions', { title: '旧Session' })).status, 401);
+  cookie = ''; csrf = '';
+  response = await post('/login', { login_id: 'tester_a', password: 'wrong' });
+  assert.equal(response.status, 422);
+  response = await post('/login', { login_id: 'TESTER_A', password: 'Test-password-123!' });
+  assert.equal(response.status, 303); await adopt(response);
+  assert.notEqual(cookie, accountA.cookie);
+  assert.equal((await get(other + '/edit')).status, 200);
+  // 有効期限を過ぎたSessionは拒否する。
+  await pool.query('UPDATE user_sessions SET expires_at=$1 WHERE user_id=$2', [new Date(0), user.id]);
+  assert.equal((await post('/questions', { title: '期限切れ' })).status, 401);
+  cookie = ''; csrf = '';
+  for (let i = 0; i < 10; i++) assert.equal((await post('/login', { login_id: 'unknown_user', password: 'bad' })).status, 422);
+  assert.equal((await post('/login', { login_id: 'unknown_user', password: 'bad' })).status, 429);
+  // 既存の匿名投稿は本人を推測して紐付けない。
+  cookie = accountB.cookie; csrf = accountB.csrf;
+  const legacy = (await pool.query("INSERT INTO questions(title,content,author_name,category) VALUES ('旧投稿','旧内容','旧ニックネーム','その他') RETURNING id")).rows[0];
+  assert.equal((await post('/questions/' + legacy.id + '/delete', {})).status, 403);
+  assert.equal((await post('/account/delete', { confirm: 'delete', password: 'incorrect' })).status, 422);
+  assert.equal((await post('/account/delete', { confirm: 'delete', password: 'Other-password-456!' })).status, 303);
+  assert.equal((await post('/questions', { title: '削除済みユーザー' })).status, 401);
+  assert.equal((await pool.query("SELECT * FROM users WHERE login_id='tester_b'")).rows.length, 0);
+  assert.equal((await pool.query("SELECT * FROM users WHERE login_id='tester_a'")).rows.length, 1);
 });

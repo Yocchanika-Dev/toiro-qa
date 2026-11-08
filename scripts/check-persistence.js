@@ -27,20 +27,31 @@ async function stop() {
 async function main() {
   const pool = createPool();
   const marker = `永続化検証-${randomUUID()}`;
+  const loginId = 'persist_' + randomUUID().replace(/-/g, '').slice(0, 16);
+  const password = randomUUID();
   try {
     await start();
-    const result = await fetch(origin + '/questions', { method: 'POST', redirect: 'manual', body: new URLSearchParams({ title: marker, author_name: '自動検証', content: 'アプリ再起動後の保存確認', category: 'その他' }) });
+    const registered = await fetch(origin + '/register', { method: 'POST', redirect: 'manual', headers: { origin }, body: new URLSearchParams({ login_id: loginId, display_name: '自動検証', password, password_confirm: password }) });
+    assert.equal(registered.status, 303);
+    const cookie = registered.headers.get('set-cookie').split(';')[0];
+    const page = await (await fetch(origin + '/questions', { headers: { cookie } })).text();
+    const csrf = page.match(/name="_csrf" value="([a-f0-9]+)"/)[1];
+    const result = await fetch(origin + '/questions', { method: 'POST', redirect: 'manual', headers: { origin, cookie }, body: new URLSearchParams({ _csrf: csrf, title: marker, content: 'アプリ再起動後の保存確認', category: 'その他' }) });
     assert.equal(result.status, 303);
     const location = result.headers.get('location');
     await stop();
     await start();
-    const response = await fetch(origin + location);
+    const response = await fetch(origin + location, { headers: { cookie } });
     assert.equal(response.status, 200);
-    assert.ok((await response.text()).includes(marker));
-    console.log('実PostgreSQL：アプリ再起動後も質問が保持されることを確認しました。');
+    const detail = await response.text();
+    assert.ok(detail.includes(marker));
+    assert.ok(detail.includes('ログアウト'));
+    assert.ok(detail.includes('編集する'));
+    console.log('実PostgreSQL：アプリ再起動後も質問・ログインSession・本人権限が保持されることを確認しました。');
   } finally {
     await stop();
     await pool.query('DELETE FROM questions WHERE title=$1', [marker]);
+    await pool.query('DELETE FROM users WHERE login_id=$1', [loginId]);
     await pool.end();
   }
 }

@@ -1,0 +1,13 @@
+<%- include('partials/header') %>
+<a class="back" href="/questions">← 質問一覧</a>
+<section class="page-heading"><p class="eyebrow">YOUR LEARNING SPACE</p><h1><%= title %></h1><p>実名・メールアドレスは不要です。公開される名前にはニックネームを使ってください。</p></section>
+<section class="panel narrow"><%- include('partials/errors') %>
+<form class="stack" method="post" action="/<%= mode %>">
+<input type="hidden" name="_csrf" value="<%= csrfToken %>">
+<% if (mode === 'register') { %><label>ニックネーム <span class="required">公開されます</span><input name="display_name" required maxlength="50" autocomplete="nickname" value="<%= values.display_name || '' %>"></label><% } %>
+<label>ログインID <span class="required">公開されません</span><input name="login_id" required minlength="4" maxlength="32" pattern="[a-z0-9_]{4,32}" autocomplete="username" autocapitalize="none" spellcheck="false" value="<%= values.login_id || '' %>" placeholder="半角英小文字・数字・_（4〜32文字）"></label>
+<label>パスワード<input type="password" name="password" required <%= mode === 'register' ? 'minlength=12' : '' %> maxlength="128" autocomplete="<%= mode === 'register' ? 'new-password' : 'current-password' %>"></label>
+<% if (mode === 'register') { %><label>パスワード（確認）<input type="password" name="password_confirm" required minlength="12" maxlength="128" autocomplete="new-password"></label><p class="subtle">パスワードは12文字以上。他のサービスと使い回さないでください。現在、パスワードを忘れた場合の再設定機能はありません。</p><% } %>
+<button class="button" type="submit"><%= mode === 'register' ? '登録してはじめる' : 'ログインする' %></button>
+</form><p><% if (mode === 'register') { %>登録済みの方は <a href="/login">ログイン</a><% } else { %>はじめての方は <a href="/register">アカウント登録</a><% } %></p></section>
+<%- include('partials/footer') %>
