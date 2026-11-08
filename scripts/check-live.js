@@ -2,6 +2,9 @@
 const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 const { setTimeout: delay } = require('node:timers/promises');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const notificationProof = path.join(__dirname, '../.local/notification-proof.json');
 const origin = process.env.PUBLIC_BASE_URL;
 if (!origin || !origin.startsWith('https://')) throw new Error('PUBLIC_BASE_URLに検証対象のHTTPS URLを指定してください。');
 const marker = `動作検証-${randomUUID()}`;
@@ -14,10 +17,10 @@ async function adopt(response) {
   cookie = response.headers.get('set-cookie').split(';')[0];
   csrf = (await (await get('/questions')).text()).match(/name="_csrf" value="([a-f0-9]+)"/)[1];
 }
-async function register() {
+async function register(displayName = '動作確認用') {
   cookie = ''; csrf = '';
   const account = { login_id: 'check_' + randomUUID().replace(/-/g, '').slice(0, 20), password: randomUUID() };
-  const response = await post('/register', { ...account, display_name: '動作確認用', password_confirm: account.password });
+  const response = await post('/register', { ...account, display_name: displayName, password_confirm: account.password });
   assert.equal(response.status, 303);
   assert.match(response.headers.get('set-cookie'), /__Host-toiro_session=/);
   assert.match(response.headers.get('set-cookie'), /Secure/);
@@ -34,6 +37,7 @@ async function main() {
     assert.equal((await get('/.local/postgres/PG_VERSION')).status, 404);
     assert.equal((await post('/questions', {})).status, 401);
     assert.equal((await post('/questions/1/answers/1/like', { action: 'add' })).status, 401);
+    assert.equal((await get('/notifications')).status, 303);
     const accountA = await register();
     for (const suffix of ['A', 'B']) {
       const response = await post('/questions', { title: marker + suffix, content: '公開環境の一時検証データ', author_name: '動作確認用', category: 'その他' });
@@ -41,13 +45,49 @@ async function main() {
       created.push(response.headers.get('location'));
     }
     const first = created[0];
-    await register();
+    await register('回答検証用');
     assert.ok(!(await (await get(first)).text()).includes('編集する'));
     assert.equal((await get(first + '/edit')).status, 403);
     assert.equal((await post(first + '/edit', { title: '権限外の編集', content: '内容', category: 'その他' })).status, 403);
     assert.equal((await post(first + '/delete', {})).status, 403);
     assert.equal((await post(first + '/status', { status: 'resolved' })).status, 403);
+    assert.equal((await post(created[1] + '/answers', { content: 'ここを見直すと解決できそうです。確認してみてください。' })).status, 303);
+    const questionBResponse = await post('/questions', { title: '通知検証専用の質問', content: '宛先分離の確認', category: 'その他' });
+    assert.equal(questionBResponse.status, 303);
+    const questionB = questionBResponse.headers.get('location');
     cookie = accountA.cookie; csrf = accountA.csrf;
+    const notificationIds = html => [...html.matchAll(/data-notification-id="(\d+)"/g)].map(match => match[1]);
+    let notificationPage = await (await get('/notifications')).text();
+    const noticeA = notificationIds(notificationPage)[0];
+    assert.ok(noticeA);
+    assert.ok(notificationPage.includes(`data-notification-id="${noticeA}" data-read="false"`));
+    assert.ok((await (await get('/questions')).text()).includes('通知（未読1件）'));
+    const opened = await post('/notifications/' + noticeA + '/open', {});
+    assert.equal(opened.status, 303);
+    assert.ok(opened.headers.get('location').startsWith(created[1] + '#answer-'));
+    assert.ok((await (await get('/notifications')).text()).includes(`data-notification-id="${noticeA}" data-read="true"`));
+    assert.equal((await post('/notifications/' + noticeA + '/read', { state: 'unread' })).status, 303);
+    assert.equal((await post(questionB + '/answers', { content: 'もう一方のユーザーだけに届く通知' })).status, 303);
+    assert.equal((await post('/notifications/read-all', {})).status, 303);
+    cookie = accounts[1].cookie; csrf = accounts[1].csrf;
+    const pageForB = await (await get('/notifications')).text();
+    assert.equal(notificationIds(pageForB).length, 1);
+    assert.ok(pageForB.includes('data-read="false"'));
+    assert.ok(!pageForB.includes('ここを見直すと解決できそうです'));
+    assert.equal((await post('/notifications/' + noticeA + '/open', {})).status, 404);
+    assert.equal((await post('/notifications/' + noticeA + '/read', { state: 'read' })).status, 404);
+    cookie = accountA.cookie; csrf = accountA.csrf;
+    assert.equal((await post('/notifications/' + noticeA + '/read', { state: 'unread' })).status, 303);
+    assert.equal((await post('/notifications/read-all', { _csrf: 'invalid' })).status, 403);
+    if (process.env.LIVE_SCREENSHOT === 'notifications') {
+      assert.equal((await post(created[1] + '/edit', { title: 'Expressのルーティングについて', content: '動作確認用の質問', category: 'その他' })).status, 303);
+      await fs.mkdir(path.dirname(notificationProof), { recursive: true });
+      await fs.writeFile(notificationProof, JSON.stringify({ login_id: accountA.login_id, password: accountA.password }), { mode: 0o600 });
+      await fs.chmod(notificationProof, 0o600);
+      console.log('通知画面の確認を準備しました。');
+      await delay(45000);
+      assert.equal((await post(created[1] + '/edit', { title: marker + 'B', content: '公開環境の一時検証データ', category: 'その他' })).status, 303);
+    }
     let response = await post(first + '/edit', { title: marker + '更新済み', content: '<script>test</script> 検証内容', category: '授業' });
     assert.equal(response.status, 303);
     let html = await (await get(first)).text();
@@ -146,11 +186,13 @@ async function main() {
     Object.assign(accountA, { cookie, csrf });
     assert.notEqual(cookie, old.cookie);
     assert.equal((await post('/questions', { _csrf: old.csrf }, { cookie: old.cookie })).status, 401);
-    console.log('公開環境：いいねの追加・取り消し・同時送信時の重複防止・2ユーザーの件数と状態の分離・CSRF拒否・削除連動を確認。');
+    assert.ok((await (await get('/notifications')).text()).includes(`data-notification-id="${noticeA}" data-read="false"`));
+    console.log('公開環境：通知の作成・ログイン後の表示・既読/未読・一括既読・宛先分離・CSRF拒否と、既存機能を確認。');
     assert.equal((await post(first + '/delete', {})).status, 303);
     assert.equal((await get(first)).status, 404);
     assert.equal((await post(remainingAnswer, {})).status, 404);
   } finally {
+    await fs.rm(notificationProof, { force: true });
     if (accounts[0]) { cookie = accounts[0].cookie; csrf = accounts[0].csrf; }
     for (const url of created) {
       const response = await post(url + '/delete', {});

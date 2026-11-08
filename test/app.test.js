@@ -45,6 +45,8 @@ test('質問・回答・検索・削除連動とエラー処理', async t => {
   assert.equal((await post('/questions', { title: '未認証' })).status, 401);
   assert.equal((await post('/questions/1/best-answer', { answer_id: '1' })).status, 401);
   assert.equal((await post('/questions/1/answers/1/like', { action: 'add' })).status, 401);
+  assert.equal((await get('/notifications')).status, 303);
+  assert.equal((await post('/notifications/read-all', {})).status, 401);
   assert.equal((await get('/questions/new')).status, 303);
   assert.equal((await fetch(base + '/login', { method: 'POST', body: new URLSearchParams({}) })).status, 403);
   response = await post('/register', { login_id: 'tester_a', display_name: 'テスト', password: 'Test-password-123!', password_confirm: 'Test-password-123!' });
@@ -116,6 +118,7 @@ test('質問・回答・検索・削除連動とエラー処理', async t => {
   response = await get('/questions');
   const listing = await response.text(); assert.ok(listing.indexOf('別の質問') < listing.indexOf('DBの質問'));
   const answers = (await pool.query('SELECT * FROM answers ORDER BY id')).rows;
+  assert.equal((await pool.query('SELECT * FROM notifications')).rows.length, 0);
   const likePath = url + '/answers/' + answers[0].id + '/like';
   const countLikes = async answerId => (await pool.query('SELECT * FROM answer_likes WHERE answer_id=$1', [answerId])).rows.length;
   const likesView = (html, id, count, liked) => html.includes(`data-like-answer-id="${id}" data-like-count="${count}" data-liked="${liked}"`);
@@ -213,6 +216,54 @@ test('質問・回答・検索・削除連動とエラー処理', async t => {
   assert.equal((await post(other + '/answers/' + keptAnswer.id + '/like', { action: 'add' })).status, 303);
   assert.equal(await countLikes(keptAnswer.id), 2);
   cookie = accountA.cookie; csrf = accountA.csrf;
+  // 他人からの回答を質問者だけに通知する。自分の回答やいいねでは増えない。
+  let notices = (await pool.query('SELECT * FROM notifications')).rows;
+  assert.equal(notices.length, 1);
+  const noticeId = notices[0].id;
+  assert.equal(notices[0].recipient_id, user.id);
+  assert.equal(notices[0].answer_id, thirdPartyAnswer.id);
+  assert.equal(notices[0].is_read, false);
+  assert.match(await (await get('/questions')).text(), /通知（未読1件）/);
+  assert.match(await (await get('/notifications')).text(), /別ユーザーの回答/);
+  assert.equal((await post('/notifications/' + noticeId + '/open', {})).headers.get('location'), other + '#answer-' + thirdPartyAnswer.id);
+  assert.equal((await pool.query('SELECT is_read FROM notifications WHERE id=$1', [noticeId])).rows[0].is_read, true);
+  assert.match(await (await get('/notifications?filter=unread')).text(), /未読の通知はありません/);
+  assert.equal((await post('/notifications/' + noticeId + '/read', { state: 'unread' })).status, 303);
+  assert.equal((await post('/notifications/' + noticeId + '/read', { state: 'invalid' })).status, 422);
+  assert.equal((await post('/notifications/read-all', { _csrf: 'invalid' })).status, 403);
+  cookie = accountB.cookie; csrf = accountB.csrf;
+  assert.doesNotMatch(await (await get('/notifications')).text(), /別ユーザーの回答/);
+  assert.equal((await post('/notifications/' + noticeId + '/read', { state: 'read', recipient_id: user.id })).status, 404);
+  assert.equal((await post('/notifications/' + noticeId + '/open', {})).status, 404);
+  assert.equal((await post('/notifications/read-all', {})).status, 303);
+  assert.equal((await pool.query('SELECT is_read FROM notifications WHERE id=$1', [noticeId])).rows[0].is_read, false);
+  assert.equal((await post(other + '/answers', { content: '通知の追加<script>例</script>' })).status, 303);
+  response = await post('/questions', { title: 'Bだけの通知先', content: '別の質問', category: 'その他' });
+  const questionB = response.headers.get('location');
+  cookie = accountA.cookie; csrf = accountA.csrf;
+  assert.match(await (await get('/notifications')).text(), /&lt;script&gt;/);
+  assert.match(await (await get('/questions')).text(), /通知（未読2件）/);
+  assert.equal((await post(questionB + '/answers', { content: 'Bへの通知内容' })).status, 303);
+  assert.equal((await post('/notifications/read-all', {})).status, 303);
+  const userB = (await pool.query("SELECT id FROM users WHERE login_id='tester_b'")).rows[0];
+  assert.ok((await pool.query('SELECT is_read FROM notifications WHERE recipient_id=$1', [user.id])).rows.every(row => row.is_read));
+  assert.equal((await pool.query('SELECT is_read FROM notifications WHERE recipient_id=$1', [userB.id])).rows[0].is_read, false);
+  assert.doesNotMatch(await (await get('/notifications')).text(), /Bへの通知内容/);
+  if (process.env.TEST_DATABASE_URL) {
+    // 通知保存が失敗したとき、回答だけが残らないことを確認する。
+    const countBefore = (await pool.query('SELECT count(*) AS count FROM answers')).rows[0].count;
+    const failingApp = createApp({ query: pool.query.bind(pool), connect: async () => {
+      const client = await pool.connect();
+      return { query: (sql, args) => { if (sql.startsWith('INSERT INTO notifications')) throw Object.assign(new Error('test'), { code: 'TEST_NOTIFICATION_FAILURE' }); return client.query(sql, args); }, release: () => client.release() };
+    } });
+    const failingServer = failingApp.listen(0, '127.0.0.1');
+    await new Promise(resolve => failingServer.once('listening', resolve));
+    try {
+      const failed = await fetch(`http://127.0.0.1:${failingServer.address().port}${other}/answers`, { method: 'POST', headers: { origin: base, cookie: accountB.cookie }, body: new URLSearchParams({ _csrf: accountB.csrf, content: 'ロールバック検証' }) });
+      assert.equal(failed.status, 500);
+      assert.equal((await pool.query('SELECT count(*) AS count FROM answers')).rows[0].count, countBefore);
+    } finally { await new Promise(resolve => failingServer.close(resolve)); }
+  }
   for (const target of [url, '/questions/abc', '/questions/999999999999999999999', '/missing']) {
     assert.equal((await get(target)).status, 404);
   }
@@ -246,6 +297,7 @@ test('質問・回答・検索・削除連動とエラー処理', async t => {
   assert.equal((await pool.query('SELECT * FROM best_answers')).rows.length, 0);
   assert.equal((await pool.query('SELECT * FROM questions WHERE id=$1', [otherId])).rows.length, 1);
   assert.equal(await countLikes(keptAnswer.id), 1);
+  assert.equal((await pool.query('SELECT * FROM notifications')).rows.length, 0);
   if (process.env.TEST_DATABASE_URL) {
     // 旧スキーマからの追加変更でも、既存の質問内容・所有者を保持する。
     const before = (await pool.query('SELECT id,title,user_id FROM questions ORDER BY id')).rows;
@@ -258,6 +310,8 @@ test('質問・回答・検索・削除連動とエラー処理', async t => {
     await pool.query(fs.readFileSync(path.join(__dirname, '../db/best-answer-migration.sql'), 'utf8'));
     await pool.query(fs.readFileSync(path.join(__dirname, '../db/likes-migration.sql'), 'utf8'));
     await pool.query(fs.readFileSync(path.join(__dirname, '../db/likes-migration.sql'), 'utf8'));
+    await pool.query(fs.readFileSync(path.join(__dirname, '../db/notifications-migration.sql'), 'utf8'));
+    await pool.query(fs.readFileSync(path.join(__dirname, '../db/notifications-migration.sql'), 'utf8'));
     assert.deepEqual((await pool.query('SELECT id,title,user_id FROM questions ORDER BY id')).rows, before);
   }
 });

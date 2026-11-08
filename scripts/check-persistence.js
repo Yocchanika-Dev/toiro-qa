@@ -29,6 +29,7 @@ async function main() {
   const marker = `永続化検証-${randomUUID()}`;
   const loginId = 'persist_' + randomUUID().replace(/-/g, '').slice(0, 16);
   const password = randomUUID();
+  const responderId = loginId + '_b';
   try {
     await start();
     const registered = await fetch(origin + '/register', { method: 'POST', redirect: 'manual', headers: { origin }, body: new URLSearchParams({ login_id: loginId, display_name: '自動検証', password, password_confirm: password }) });
@@ -48,6 +49,16 @@ async function main() {
     assert.equal(selected.status, 303);
     const liked = await fetch(origin + location + '/answers/' + answerId + '/like', { method: 'POST', redirect: 'manual', headers: { origin, cookie }, body: new URLSearchParams({ _csrf: csrf, action: 'add' }) });
     assert.equal(liked.status, 303);
+    const secondUser = await fetch(origin + '/register', { method: 'POST', redirect: 'manual', headers: { origin }, body: new URLSearchParams({ login_id: responderId, display_name: '回答検証用', password, password_confirm: password }) });
+    assert.equal(secondUser.status, 303);
+    const cookieB = secondUser.headers.get('set-cookie').split(';')[0];
+    const pageB = await (await fetch(origin + '/questions', { headers: { cookie: cookieB } })).text();
+    const csrfB = pageB.match(/name="_csrf" value="([a-f0-9]+)"/)[1];
+    const newAnswer = await fetch(origin + location + '/answers', { method: 'POST', redirect: 'manual', headers: { origin, cookie: cookieB }, body: new URLSearchParams({ _csrf: csrfB, content: '再起動後の通知を確認' }) });
+    assert.equal(newAnswer.status, 303);
+    const noticeId = (await pool.query('SELECT id FROM notifications WHERE answer_id IN (SELECT id FROM answers WHERE question_id=$1)', [location.split('/').pop()])).rows[0].id;
+    const marked = await fetch(origin + '/notifications/' + noticeId + '/read', { method: 'POST', redirect: 'manual', headers: { origin, cookie }, body: new URLSearchParams({ _csrf: csrf, state: 'read' }) });
+    assert.equal(marked.status, 303);
     await stop();
     await start();
     const response = await fetch(origin + location, { headers: { cookie } });
@@ -59,11 +70,19 @@ async function main() {
     assert.ok(detail.includes('未解決に戻す'));
     assert.ok(detail.includes('質問者が選んだ回答'));
     assert.ok(detail.includes(`data-like-answer-id="${answerId}" data-like-count="1" data-liked="true"`));
-    console.log('実PostgreSQL：アプリ再起動後もいいねの件数・自分の状態・ベストアンサー・Sessionが保持されることを確認しました。');
+    const notifications = await (await fetch(origin + '/notifications', { headers: { cookie } })).text();
+    assert.ok(notifications.includes(`data-notification-id="${noticeId}" data-read="true"`));
+    const unread = await fetch(origin + '/notifications/' + noticeId + '/read', { method: 'POST', redirect: 'manual', headers: { origin, cookie }, body: new URLSearchParams({ _csrf: csrf, state: 'unread' }) });
+    assert.equal(unread.status, 303);
+    await stop(); await start();
+    const restored = await (await fetch(origin + '/notifications', { headers: { cookie } })).text();
+    assert.ok(restored.includes(`data-notification-id="${noticeId}" data-read="false"`));
+    console.log('実PostgreSQL：通知の既読・未読、既存機能とSessionがアプリ再起動後も保持されることを確認しました。');
   } finally {
     await stop();
     await pool.query('DELETE FROM questions WHERE title=$1', [marker]);
     await pool.query('DELETE FROM users WHERE login_id=$1', [loginId]);
+    await pool.query('DELETE FROM users WHERE login_id=$1', [responderId]);
     await pool.end();
   }
 }

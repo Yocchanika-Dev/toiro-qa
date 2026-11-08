@@ -10,6 +10,7 @@ function createApp(pool) {
   app.disable('x-powered-by');
   app.locals.currentUser = null;
   app.locals.csrfToken = '';
+  app.locals.unreadCount = 0;
   app.set('views', path.join(__dirname, 'views'));
   app.set('view engine', 'ejs');
   app.use(express.static(path.join(__dirname, 'public')));
@@ -36,6 +37,31 @@ function createApp(pool) {
 
   app.get('/', (req, res) => res.redirect('/questions'));
   app.get('/health', async (req, res) => { await pool.query('SELECT 1'); res.json({ status: 'ok' }); });
+  app.get('/notifications', requireUser, async (req, res) => {
+    const filter = req.query.filter === 'unread' ? 'unread' : 'all';
+    const { rows } = await pool.query(`SELECT n.id,n.is_read,n.created_at,a.author_name,a.content,a.id AS answer_id,q.id AS question_id,q.title
+      FROM notifications n JOIN answers a ON a.id=n.answer_id JOIN questions q ON q.id=a.question_id
+      WHERE n.recipient_id=$1 AND q.user_id=$1 ${filter === 'unread' ? 'AND n.is_read=FALSE' : ''}
+      ORDER BY n.created_at DESC,n.id DESC`, [req.user.id]);
+    res.render('notifications', { title: '通知', notifications: rows, filter });
+  });
+  app.post('/notifications/read-all', requireUser, async (req, res) => {
+    await pool.query('UPDATE notifications SET is_read=TRUE WHERE recipient_id=$1 AND is_read=FALSE', [req.user.id]);
+    res.redirect(303, '/notifications');
+  });
+  app.post('/notifications/:id/read', requireUser, async (req, res) => {
+    if (!validId(req.params.id) || !['read', 'unread'].includes(req.body.state)) return res.status(422).render('error', { title: '通知を変更できません', message: '通知一覧から操作してください。' });
+    const result = await pool.query('UPDATE notifications SET is_read=$1 WHERE id=$2 AND recipient_id=$3 RETURNING id', [req.body.state === 'read', req.params.id, req.user.id]);
+    if (!result.rows.length) return res.status(404).render('error', { title: '通知が見つかりません', message: '自分宛ての通知を選んでください。' });
+    res.redirect(303, '/notifications');
+  });
+  app.post('/notifications/:id/open', requireUser, async (req, res) => {
+    if (!validId(req.params.id)) return missing(res);
+    const notice = (await pool.query('SELECT n.answer_id,a.question_id FROM notifications n JOIN answers a ON a.id=n.answer_id WHERE n.id=$1 AND n.recipient_id=$2', [req.params.id, req.user.id])).rows[0];
+    if (!notice) return res.status(404).render('error', { title: '通知が見つかりません', message: '自分宛ての通知を選んでください。' });
+    await pool.query('UPDATE notifications SET is_read=TRUE WHERE id=$1 AND recipient_id=$2', [req.params.id, req.user.id]);
+    res.redirect(303, `/questions/${notice.question_id}#answer-${notice.answer_id}`);
+  });
   app.get('/questions', async (req, res) => {
     const keyword = text(req.query.q).slice(0, 150);
     const category = text(req.query.category);
@@ -164,7 +190,19 @@ function createApp(pool) {
     if (errors.length) {
       return res.status(422).render('detail', { title: question.title, question, answers: await getAnswers(question.id, req.user?.id), errors, answer: data });
     }
-    await pool.query('INSERT INTO answers (question_id, author_name, content, user_id) VALUES ($1,$2,$3,$4)', [question.id, data.author_name, data.content, req.user.id]);
+    // 回答と質問者への通知を同一トランザクションで保存し、片方だけの保存を防ぐ。
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const answer = (await client.query('INSERT INTO answers (question_id, author_name, content, user_id) VALUES ($1,$2,$3,$4) RETURNING id', [question.id, data.author_name, data.content, req.user.id])).rows[0];
+      // 自分自身の回答と、所有者のいない旧投稿には通知しない。
+      await client.query('INSERT INTO notifications(recipient_id,answer_id) SELECT user_id,$1::integer FROM questions WHERE id=$2 AND user_id IS NOT NULL AND user_id<>$3', [answer.id, question.id, req.user.id]);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      if (error.code === '23503') return missing(res);
+      throw error;
+    } finally { client.release(); }
     res.redirect(303, `/questions/${question.id}#answers`);
   });
   app.post('/questions/:id/answers/:answerId/like', requireUser, async (req, res) => {

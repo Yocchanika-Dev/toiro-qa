@@ -28,10 +28,14 @@ function installAuth(app, pool) {
     res.set('Cache-Control', 'no-store');
     res.locals.currentUser = null;
     res.locals.csrfToken = '';
+    res.locals.unreadCount = 0;
     const token = tokenFrom(req);
     if (token) {
       const { rows } = await pool.query('SELECT u.id, u.display_name FROM user_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at > CURRENT_TIMESTAMP::timestamptz', [digest(token)]);
-      if (rows[0]) { req.user = rows[0]; res.locals.currentUser = req.user; res.locals.csrfToken = digest('csrf:' + token); }
+      if (rows[0]) {
+        req.user = rows[0]; res.locals.currentUser = req.user; res.locals.csrfToken = digest('csrf:' + token);
+        res.locals.unreadCount = Number((await pool.query('SELECT count(*) AS unread_count FROM notifications WHERE recipient_id=$1 AND is_read=FALSE', [req.user.id])).rows[0].unread_count);
+      }
       else res.clearCookie(cookieName(), cookieOptions());
     }
     if (req.method === 'POST' && req.user && req.body._csrf !== res.locals.csrfToken) {
