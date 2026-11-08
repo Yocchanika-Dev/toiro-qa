@@ -17,7 +17,7 @@ function createApp(pool) {
     // ブラウザから別サイト経由で送られた変更リクエストを拒否。
     if (req.method === 'POST') {
       const origin = req.get('origin');
-      const expected = process.env.APP_ORIGIN || `${req.protocol}://${req.get('host')}`;
+      const expected = process.env.APP_ORIGIN || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : `${req.protocol}://${req.get('host')}`);
       if (req.get('sec-fetch-site') === 'cross-site' || (origin && origin !== expected)) {
         return res.status(403).render('error', { title: '送信できません', message: 'このサイトのフォームから送信してください。' });
       }

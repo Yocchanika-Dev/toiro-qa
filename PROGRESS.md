@@ -22,7 +22,11 @@
 ## 未確認・未実施
 
 - PostgreSQLプロセス自体の再起動後の保持は未検証（課題のサーバー再起動後の保持は確認済み）。
-- Vercelのログイン待ち。公開用の専用PostgreSQL作成・デプロイ・公開環境でのCRUDは未実施。ローカルDBや別課題のDBを公開用に流用しない。
+- Vercelログイン済み。専用Neon DB `toiro-qa-db`（Free）を作成し、users・questions・answersとインデックスを作成済み。既存の課題DBとは分離。
+- VercelのGitHub Appに公開リポジトリ `toiro-qa` を追加する権限をユーザーが承認し、保存完了。
+- Vercelの追加本人確認をユーザーが完了。プロジェクト作成と初回デプロイ成功。
+- 専用Neon DBをtoiro-qaのProduction・Previewに接続済み。接続情報はVercelのSensitive環境変数に自動登録。
+- DB接続反映後のデプロイと公開環境CRUD検証を実施中。
 - 発展機能全般。
 - 本人によるコード理解・修正・動画収録・提出。
 
