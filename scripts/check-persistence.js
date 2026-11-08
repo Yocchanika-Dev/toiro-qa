@@ -46,6 +46,8 @@ async function main() {
     const answerId = (await pool.query('SELECT id FROM answers WHERE question_id=$1', [location.split('/').pop()])).rows[0].id;
     const selected = await fetch(origin + location + '/best-answer', { method: 'POST', redirect: 'manual', headers: { origin, cookie }, body: new URLSearchParams({ _csrf: csrf, answer_id: answerId }) });
     assert.equal(selected.status, 303);
+    const liked = await fetch(origin + location + '/answers/' + answerId + '/like', { method: 'POST', redirect: 'manual', headers: { origin, cookie }, body: new URLSearchParams({ _csrf: csrf, action: 'add' }) });
+    assert.equal(liked.status, 303);
     await stop();
     await start();
     const response = await fetch(origin + location, { headers: { cookie } });
@@ -56,7 +58,8 @@ async function main() {
     assert.ok(detail.includes('編集する'));
     assert.ok(detail.includes('未解決に戻す'));
     assert.ok(detail.includes('質問者が選んだ回答'));
-    console.log('実PostgreSQL：アプリ再起動後もベストアンサー・解決状態・ログインSession・本人権限が保持されることを確認しました。');
+    assert.ok(detail.includes(`data-like-answer-id="${answerId}" data-like-count="1" data-liked="true"`));
+    console.log('実PostgreSQL：アプリ再起動後もいいねの件数・自分の状態・ベストアンサー・Sessionが保持されることを確認しました。');
   } finally {
     await stop();
     await pool.query('DELETE FROM questions WHERE title=$1', [marker]);

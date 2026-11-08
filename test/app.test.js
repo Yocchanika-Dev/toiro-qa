@@ -44,6 +44,7 @@ test('質問・回答・検索・削除連動とエラー処理', async t => {
   assert.match(await response.text(), /まだ質問がありません/);
   assert.equal((await post('/questions', { title: '未認証' })).status, 401);
   assert.equal((await post('/questions/1/best-answer', { answer_id: '1' })).status, 401);
+  assert.equal((await post('/questions/1/answers/1/like', { action: 'add' })).status, 401);
   assert.equal((await get('/questions/new')).status, 303);
   assert.equal((await fetch(base + '/login', { method: 'POST', body: new URLSearchParams({}) })).status, 403);
   response = await post('/register', { login_id: 'tester_a', display_name: 'テスト', password: 'Test-password-123!', password_confirm: 'Test-password-123!' });
@@ -115,6 +116,26 @@ test('質問・回答・検索・削除連動とエラー処理', async t => {
   response = await get('/questions');
   const listing = await response.text(); assert.ok(listing.indexOf('別の質問') < listing.indexOf('DBの質問'));
   const answers = (await pool.query('SELECT * FROM answers ORDER BY id')).rows;
+  const likePath = url + '/answers/' + answers[0].id + '/like';
+  const countLikes = async answerId => (await pool.query('SELECT * FROM answer_likes WHERE answer_id=$1', [answerId])).rows.length;
+  const likesView = (html, id, count, liked) => html.includes(`data-like-answer-id="${id}" data-like-count="${count}" data-liked="${liked}"`);
+  assert.ok(likesView(await (await get(url)).text(), answers[0].id, 0, false));
+  assert.equal((await post(likePath, { action: 'add', user_id: '99999' })).status, 303);
+  const retries = await Promise.all([post(likePath, { action: 'add' }), post(likePath, { action: 'add' })]);
+  assert.ok(retries.every(result => result.status === 303));
+  assert.equal(await countLikes(answers[0].id), 1);
+  assert.equal((await pool.query('SELECT user_id FROM answer_likes')).rows[0].user_id, user.id);
+  assert.ok(likesView(await (await get(url)).text(), answers[0].id, 1, true));
+  assert.equal((await post(other + '/answers/' + answers[0].id + '/like', { action: 'add' })).status, 404);
+  assert.equal((await post(likePath, { action: 'invalid' })).status, 422);
+  assert.equal((await post(likePath, { action: 'remove', _csrf: 'invalid' })).status, 403);
+  assert.equal((await post(likePath, { action: 'remove' })).status, 303);
+  assert.equal((await post(likePath, { action: 'remove' })).status, 303);
+  assert.equal(await countLikes(answers[0].id), 0);
+  assert.equal((await post(likePath, { action: 'add' })).status, 303);
+  cookie = ''; csrf = '';
+  assert.ok(likesView(await (await get(url)).text(), answers[0].id, 1, false));
+  cookie = accountA.cookie; csrf = accountA.csrf;
   assert.equal((await post(url + '/best-answer', { answer_id: answers[0].id })).status, 303);
   assert.equal((await pool.query('SELECT * FROM best_answers')).rows[0].answer_id, answers[0].id);
   assert.equal((await (await get(url)).text()).match(/class="panel answer best-answer"/g).length, 1);
@@ -140,6 +161,13 @@ test('質問・回答・検索・削除連動とエラー処理', async t => {
   response = await post('/register', { login_id: 'tester_b', display_name: '別ユーザー', password: 'Other-password-456!', password_confirm: 'Other-password-456!' });
   assert.equal(response.status, 303); await adopt(response);
   const accountB = { cookie, csrf };
+  assert.equal((await post(likePath, { action: 'add' })).status, 303);
+  assert.equal(await countLikes(answers[0].id), 2);
+  assert.ok(likesView(await (await get(url)).text(), answers[0].id, 2, true));
+  assert.equal((await post(likePath, { action: 'remove', user_id: user.id })).status, 303);
+  assert.equal(await countLikes(answers[0].id), 1);
+  assert.equal((await pool.query('SELECT user_id FROM answer_likes')).rows[0].user_id, user.id);
+  assert.equal((await post(likePath, { action: 'add' })).status, 303);
   const strangerPage = await (await get(url)).text();
   assert.doesNotMatch(strangerPage, /編集する|この回答を削除/);
   assert.doesNotMatch(strangerPage, /解決済みにする/);
@@ -162,11 +190,15 @@ test('質問・回答・検索・削除連動とエラー処理', async t => {
   assert.equal((await pool.query('SELECT * FROM answers')).rows.length, 2);
   response = await post(url + '/answers/' + answers[0].id + '/delete', {});
   assert.equal(response.status, 303);
+  assert.equal(await countLikes(answers[0].id), 0);
+  assert.equal((await post(likePath, { action: 'add' })).status, 404);
+  assert.equal((await post(url + '/answers/' + answers[1].id + '/like', { action: 'add' })).status, 303);
   assert.equal((await pool.query('SELECT * FROM best_answers')).rows.length, 0);
   assert.equal((await post(url + '/best-answer', { answer_id: answers[1].id })).status, 303);
   response = await get(url + '/delete'); assert.match(await response.text(), /この操作は取り消せません/);
   response = await post(url + '/delete', {}); assert.equal(response.status, 303);
   assert.equal((await pool.query('SELECT * FROM answers')).rows.length, 0);
+  assert.equal((await pool.query('SELECT * FROM answer_likes')).rows.length, 0);
   assert.equal((await pool.query('SELECT * FROM best_answers')).rows.length, 0);
   assert.equal((await pool.query('SELECT * FROM questions')).rows[0].id, otherId);
   cookie = accountB.cookie; csrf = accountB.csrf;
@@ -174,6 +206,13 @@ test('質問・回答・検索・削除連動とエラー処理', async t => {
   const thirdPartyAnswer = (await pool.query('SELECT id FROM answers WHERE question_id=$1', [otherId])).rows[0];
   cookie = accountA.cookie; csrf = accountA.csrf;
   assert.equal((await post(other + '/best-answer', { answer_id: thirdPartyAnswer.id })).status, 303);
+  assert.equal((await post(other + '/answers', { content: '退会後も残す回答' })).status, 303);
+  const keptAnswer = (await pool.query('SELECT id FROM answers WHERE question_id=$1 AND user_id=$2', [otherId, user.id])).rows[0];
+  assert.equal((await post(other + '/answers/' + keptAnswer.id + '/like', { action: 'add' })).status, 303);
+  cookie = accountB.cookie; csrf = accountB.csrf;
+  assert.equal((await post(other + '/answers/' + keptAnswer.id + '/like', { action: 'add' })).status, 303);
+  assert.equal(await countLikes(keptAnswer.id), 2);
+  cookie = accountA.cookie; csrf = accountA.csrf;
   for (const target of [url, '/questions/abc', '/questions/999999999999999999999', '/missing']) {
     assert.equal((await get(target)).status, 404);
   }
@@ -206,6 +245,7 @@ test('質問・回答・検索・削除連動とエラー処理', async t => {
   assert.equal((await pool.query("SELECT * FROM users WHERE login_id='tester_a'")).rows.length, 1);
   assert.equal((await pool.query('SELECT * FROM best_answers')).rows.length, 0);
   assert.equal((await pool.query('SELECT * FROM questions WHERE id=$1', [otherId])).rows.length, 1);
+  assert.equal(await countLikes(keptAnswer.id), 1);
   if (process.env.TEST_DATABASE_URL) {
     // 旧スキーマからの追加変更でも、既存の質問内容・所有者を保持する。
     const before = (await pool.query('SELECT id,title,user_id FROM questions ORDER BY id')).rows;
@@ -216,6 +256,8 @@ test('質問・回答・検索・削除連動とエラー処理', async t => {
     assert.ok((await pool.query('SELECT status FROM questions')).rows.every(row => row.status === 'unresolved'));
     await pool.query(fs.readFileSync(path.join(__dirname, '../db/best-answer-migration.sql'), 'utf8'));
     await pool.query(fs.readFileSync(path.join(__dirname, '../db/best-answer-migration.sql'), 'utf8'));
+    await pool.query(fs.readFileSync(path.join(__dirname, '../db/likes-migration.sql'), 'utf8'));
+    await pool.query(fs.readFileSync(path.join(__dirname, '../db/likes-migration.sql'), 'utf8'));
     assert.deepEqual((await pool.query('SELECT id,title,user_id FROM questions ORDER BY id')).rows, before);
   }
 });

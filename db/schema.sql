@@ -34,6 +34,12 @@ CREATE TABLE IF NOT EXISTS best_answers (
   answer_id INTEGER NOT NULL,
   FOREIGN KEY (question_id,answer_id) REFERENCES answers(question_id,id) ON DELETE CASCADE
 );
+CREATE TABLE IF NOT EXISTS answer_likes (
+  answer_id INTEGER NOT NULL REFERENCES answers(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (answer_id,user_id)
+);
+CREATE INDEX IF NOT EXISTS answer_likes_user_idx ON answer_likes(user_id);
 CREATE TABLE IF NOT EXISTS user_sessions (
   token_hash VARCHAR(64) PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

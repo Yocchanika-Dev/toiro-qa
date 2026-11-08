@@ -33,6 +33,7 @@ async function main() {
     assert.equal((await get('/.env')).status, 404);
     assert.equal((await get('/.local/postgres/PG_VERSION')).status, 404);
     assert.equal((await post('/questions', {})).status, 401);
+    assert.equal((await post('/questions/1/answers/1/like', { action: 'add' })).status, 401);
     const accountA = await register();
     for (const suffix of ['A', 'B']) {
       const response = await post('/questions', { title: marker + suffix, content: '公開環境の一時検証データ', author_name: '動作確認用', category: 'その他' });
@@ -57,6 +58,26 @@ async function main() {
     }
     const answerIds = [...(await (await get(first)).text()).matchAll(/data-answer-id="(\d+)"/g)].map(match => match[1]);
     assert.equal(answerIds.length, 2);
+    const likePath = first + '/answers/' + answerIds[0] + '/like';
+    const hasLikes = (html, count, liked) => html.includes(`data-like-answer-id="${answerIds[0]}" data-like-count="${count}" data-liked="${liked}"`);
+    assert.equal((await post(likePath, { action: 'add' })).status, 303);
+    const duplicateLikes = await Promise.all([post(likePath, { action: 'add' }), post(likePath, { action: 'add' })]);
+    assert.ok(duplicateLikes.every(result => result.status === 303));
+    assert.ok(hasLikes(await (await get(first)).text(), 1, true));
+    cookie = accounts[1].cookie; csrf = accounts[1].csrf;
+    assert.equal((await post(likePath, { action: 'add' })).status, 303);
+    assert.ok(hasLikes(await (await get(first)).text(), 2, true));
+    assert.equal((await post(likePath, { action: 'remove', user_id: '99999' })).status, 303);
+    assert.ok(hasLikes(await (await get(first)).text(), 1, false));
+    assert.equal((await post(likePath, { action: 'add' })).status, 303);
+    cookie = accountA.cookie; csrf = accountA.csrf;
+    assert.equal((await post(likePath, { action: 'remove' })).status, 303);
+    assert.ok(hasLikes(await (await get(first)).text(), 1, false));
+    assert.equal((await post(likePath, { action: 'add' })).status, 303);
+    assert.equal((await post(likePath, { action: 'remove', _csrf: 'invalid' })).status, 403);
+    assert.equal((await post(created[1] + '/answers/' + answerIds[0] + '/like', { action: 'add' })).status, 404);
+    assert.equal((await post(likePath, { action: 'invalid' })).status, 422);
+    assert.ok(hasLikes(await (await get(first)).text(), 2, true));
     assert.equal((await post(first + '/best-answer', { answer_id: answerIds[0] })).status, 303);
     let selectedPage = await (await get(first)).text();
     assert.equal((selectedPage.match(/class="panel answer best-answer"/g) || []).length, 1);
@@ -101,6 +122,7 @@ async function main() {
     const answer = answerPath(await (await get(first)).text());
     assert.ok(answer);
     assert.equal((await post(answer, {})).status, 303);
+    assert.equal((await post(likePath, { action: 'add' })).status, 404);
     assert.ok(!(await (await get(first)).text()).includes('検証用回答1'));
     assert.equal(((await (await get(first)).text()).match(/class="panel answer best-answer"/g) || []).length, 0);
     const remainingAnswer = answerPath(await (await get(first)).text());
@@ -124,7 +146,7 @@ async function main() {
     Object.assign(accountA, { cookie, csrf });
     assert.notEqual(cookie, old.cookie);
     assert.equal((await post('/questions', { _csrf: old.csrf }, { cookie: old.cookie })).status, 401);
-    console.log('公開環境：既存機能に加え、ベストアンサーの選択・変更・解除、本人権限、別質問の回答選択拒否、削除連動を確認。');
+    console.log('公開環境：いいねの追加・取り消し・同時送信時の重複防止・2ユーザーの件数と状態の分離・CSRF拒否・削除連動を確認。');
     assert.equal((await post(first + '/delete', {})).status, 303);
     assert.equal((await get(first)).status, 404);
     assert.equal((await post(remainingAnswer, {})).status, 404);

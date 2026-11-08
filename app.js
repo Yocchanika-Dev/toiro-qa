@@ -73,8 +73,12 @@ function createApp(pool) {
     if (!validId(id)) return null;
     return (await pool.query('SELECT * FROM questions WHERE id=$1', [id])).rows[0];
   }
-  async function getAnswers(questionId) {
-    return (await pool.query('SELECT a.*, (b.answer_id IS NOT NULL) AS is_best FROM answers a LEFT JOIN best_answers b ON b.question_id=a.question_id AND b.answer_id=a.id WHERE a.question_id=$1 ORDER BY a.created_at,a.id', [questionId])).rows;
+  async function getAnswers(questionId, userId) {
+    return (await pool.query(`SELECT a.*, (b.answer_id IS NOT NULL) AS is_best, COALESCE(l.like_count,0) AS like_count, (mine.user_id IS NOT NULL) AS liked_by_me
+      FROM answers a LEFT JOIN best_answers b ON b.question_id=a.question_id AND b.answer_id=a.id
+      LEFT JOIN (SELECT answer_id,count(*) AS like_count FROM answer_likes GROUP BY answer_id) l ON l.answer_id=a.id
+      LEFT JOIN answer_likes mine ON mine.answer_id=a.id AND mine.user_id=$2
+      WHERE a.question_id=$1 ORDER BY a.created_at,a.id`, [questionId, userId || 0])).rows;
   }
   function missing(res) { return res.status(404).render('error', { title: '質問が見つかりません', message: '質問は削除されたか、URLが間違っています。' }); }
   function forbidden(res) { return res.status(403).render('error', { title: '操作できません', message: '自分の投稿だけを編集・削除できます。' }); }
@@ -89,7 +93,7 @@ function createApp(pool) {
   app.get('/questions/:id', async (req, res) => {
     const question = await getQuestion(req.params.id);
     if (!question) return missing(res);
-    res.render('detail', { title: question.title, question, answers: await getAnswers(question.id), errors: [], answer: {} });
+    res.render('detail', { title: question.title, question, answers: await getAnswers(question.id, req.user?.id), errors: [], answer: {} });
   });
   app.get('/questions/:id/edit', requireUser, async (req, res) => {
     const question = await getQuestion(req.params.id);
@@ -158,10 +162,28 @@ function createApp(pool) {
     if (!question) return missing(res);
     const { data, errors } = validate({ ...req.body, author_name: req.user.display_name }, false);
     if (errors.length) {
-      return res.status(422).render('detail', { title: question.title, question, answers: await getAnswers(question.id), errors, answer: data });
+      return res.status(422).render('detail', { title: question.title, question, answers: await getAnswers(question.id, req.user?.id), errors, answer: data });
     }
     await pool.query('INSERT INTO answers (question_id, author_name, content, user_id) VALUES ($1,$2,$3,$4)', [question.id, data.author_name, data.content, req.user.id]);
     res.redirect(303, `/questions/${question.id}#answers`);
+  });
+  app.post('/questions/:id/answers/:answerId/like', requireUser, async (req, res) => {
+    if (!validId(req.params.id) || !validId(req.params.answerId)) return missing(res);
+    if (!['add', 'remove'].includes(req.body.action)) return res.status(422).render('error', { title: '操作できません', message: '回答のいいねボタンから操作してください。' });
+    const answer = (await pool.query('SELECT id FROM answers WHERE id=$1 AND question_id=$2', [req.params.answerId, req.params.id])).rows[0];
+    if (!answer) return res.status(404).render('error', { title: '回答が見つかりません', message: 'この質問への回答を選択してください。' });
+    try {
+      if (req.body.action === 'add') {
+        // 再送・同時送信でも1ユーザー1件。クライアントのuser_idは使用しない。
+        await pool.query('INSERT INTO answer_likes(answer_id,user_id) VALUES ($1,$2) ON CONFLICT(answer_id,user_id) DO NOTHING', [answer.id, req.user.id]);
+      } else {
+        await pool.query('DELETE FROM answer_likes WHERE answer_id=$1 AND user_id=$2', [answer.id, req.user.id]);
+      }
+    } catch (error) {
+      if (error.code === '23503') return missing(res);
+      throw error;
+    }
+    res.redirect(303, `/questions/${req.params.id}#answers`);
   });
   app.post('/questions/:id/answers/:answerId/delete', requireUser, async (req, res) => {
     if (!validId(req.params.id) || !validId(req.params.answerId)) return missing(res);
