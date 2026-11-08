@@ -11,12 +11,21 @@ function createApp(pool) {
   app.locals.currentUser = null;
   app.locals.csrfToken = '';
   app.locals.unreadCount = 0;
+  app.locals.categories = categories;
+  app.locals.currentPath = '';
+  app.locals.navCategory = '';
+  app.locals.navStatus = '';
+  app.locals.navSort = '';
   app.set('views', path.join(__dirname, 'views'));
   app.set('view engine', 'ejs');
   app.use(express.static(path.join(__dirname, 'public')));
   app.use(express.urlencoded({ extended: false, limit: '64kb' }));
   app.use((req, res, next) => {
     req.body ||= {};
+    res.locals.currentPath = req.path;
+    res.locals.navCategory = text(req.query.category);
+    res.locals.navStatus = text(req.query.status);
+    res.locals.navSort = text(req.query.sort);
     res.locals.currentUser = null;
     res.locals.csrfToken = '';
     res.set('X-Content-Type-Options', 'nosniff');

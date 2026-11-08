@@ -1,4 +1,4 @@
-# といろ — 授業Q&A
+# webbit — 授業Q&A
 
 Node.js / Express / EJS / PostgreSQL / pg を使用した、質問と回答を共有するWebアプリ。
 

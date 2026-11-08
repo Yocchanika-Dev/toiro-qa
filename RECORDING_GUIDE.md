@@ -37,7 +37,7 @@
 
 表示：リポジトリのファイル一覧。
 
-> Q&Aアプリ「といろ」の登録・更新・削除を説明します。Node.jsとExpressでリクエストを処理し、EJSで画面を作り、pgからPostgreSQLを操作しています。
+> Q&Aアプリ「webbit」の登録・更新・削除を説明します。Node.jsとExpressでリクエストを処理し、EJSで画面を作り、pgからPostgreSQLを操作しています。
 
 ### 0:20〜1:55：Create（登録・最大7点）
 
