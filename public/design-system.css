@@ -33,3 +33,5 @@ input,select,textarea{background:var(--surface);color:var(--ink);border-color:va
 @media(max-width:640px){.app-shell>main{padding:22px 14px 40px}.feed-heading{margin-bottom:12px}.feed-heading h1{font-size:20px}.feed-tabs{gap:22px}.feed-tabs a{font-size:12px}.question-card{padding:20px 0}.question-card h2{font-size:17px;line-height:1.65}.question-card .excerpt{font-size:13px}.post-meta,.post-topic,.post-author{font-size:11px}.post-meta{gap:7px}.post-actions{gap:14px}}
 
 @media(min-width:1041px){.site-footer{max-width:960px;margin:0 48px 0 288px}}
+
+.pagination{display:flex;align-items:center;justify-content:center;gap:24px;padding:24px 0;font-size:13px}.pagination span{color:var(--muted)}.pagination a{padding:8px 0}@media(max-width:640px){.pagination{gap:16px;font-size:12px}}

@@ -59,3 +59,5 @@ CREATE TABLE IF NOT EXISTS auth_attempts (
   attempts INTEGER NOT NULL,
   expires_at TIMESTAMPTZ NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS auth_attempts_expires_idx ON auth_attempts(expires_at);

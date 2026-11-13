@@ -1,0 +1,1 @@
+<% if (pager.previous || pager.next) { %><nav class="pagination" aria-label="ページ切り替え"><% if (pager.previous) { %><a href="<%= pager.previous %>" rel="prev">← 前の20件</a><% } %><span><%= pager.page %>ページ目</span><% if (pager.next) { %><a href="<%= pager.next %>" rel="next">次の20件 →</a><% } %></nav><% } %>

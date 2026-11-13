@@ -10,7 +10,7 @@
     "db:local": "node scripts/setup-local-db.js",
     "test:postgres": "node --env-file-if-exists=.env scripts/test-postgres.js",
     "check:privacy": "node scripts/check-privacy.js",
-    "test": "node --test test/app.test.js"
+    "test": "node --test test/*.test.js"
   },
   "engines": { "node": ">=22.9" },
   "dependencies": { "express": "5.2.1", "ejs": "7.0.1", "pg": "8.23.1" },
