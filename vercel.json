@@ -2,6 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
   "framework": null,
+  "git": { "deploymentEnabled": { "study-notes": false } },
   "functions": {
     "api/index.js": { "includeFiles": "{views,public}/**" }
   },

@@ -117,6 +117,8 @@ Vercel向けエントリーポイントは `api/index.js`。専用の公開Postg
 
 ## コード解説の入口
 
+体系的な学習は [全8回の教材](docs/learning/README.md)、再開地点は [学習進捗](docs/learning/PROGRESS.md) を参照。
+
 収録台本は [RECORDING_GUIDE.md](RECORDING_GUIDE.md)、本人による操作・理解確認は [PERSONAL_REVIEW.md](PERSONAL_REVIEW.md)。動画は未収録。
 
 - `db/schema.sql`：質問と回答の外部キー、質問削除時の回答削除
