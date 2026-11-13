@@ -45,6 +45,7 @@ function createApp(pool) {
   installAuth(app, pool);
 
   app.get('/', (req, res) => res.redirect('/questions'));
+  app.get('/guide', (req, res) => res.render('guide', { title: 'この場所の使い方' }));
   app.get('/health', async (req, res) => { await pool.query('SELECT 1'); res.json({ status: 'ok' }); });
   app.get('/notifications', requireUser, async (req, res) => {
     const filter = req.query.filter === 'unread' ? 'unread' : 'all';

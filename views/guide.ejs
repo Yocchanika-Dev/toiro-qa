@@ -1,0 +1,12 @@
+<%- include('partials/header') %>
+<div class="narrow guide-page">
+<a class="back" href="/questions">← 質問一覧</a>
+<section class="page-heading"><p class="eyebrow">HELLO, CURIOUS MINDS.</p><h1>この場所の使い方</h1><p>わからないことを持ち寄って、少しずつ「わかった」に。</p></section>
+<ol class="guide-steps">
+<li class="panel"><span class="guide-number" aria-hidden="true">01</span><div><h2>聞く</h2><p>「授業・課外活動・その他」からカテゴリを選んで、疑問と試したことを書こう。短い質問でも大丈夫。</p><a href="/questions/new">質問を投稿する →</a></div></li>
+<li class="panel"><span class="guide-number" aria-hidden="true">02</span><div><h2>答える</h2><p>知っている質問を見つけたら、詳細ページから回答。ほかの人から回答が届くと、質問者に通知されます。</p><a href="/questions?status=unresolved">未解決の質問を探す →</a></div></li>
+<li class="panel"><span class="guide-number" aria-hidden="true">03</span><div><h2>解決する</h2><p>質問者は役立った回答を1つ、ベストアンサーに選べます。疑問が解けたら「解決済みにする」を押そう。</p><p class="subtle">ベストアンサーと解決状態は別々に変更できます。まだ気になることがあれば、未解決にも戻せます。</p></div></li>
+</ol>
+<section class="panel guide-welcome"><h2>小さな疑問も歓迎。<br>有識者も、通りすがりも。</h2><p>読む・探すだけなら登録不要。投稿・回答・いいねにはログインが必要です。</p><p class="subtle">名前はニックネームで。自分やほかの人の個人情報は書かず、回答にはやさしさを。</p><a class="button" href="<%= currentUser ? '/questions' : '/register' %>"><%= currentUser ? '質問を見にいく' : 'webbitに参加する' %></a></section>
+</div>
+<%- include('partials/footer') %>
