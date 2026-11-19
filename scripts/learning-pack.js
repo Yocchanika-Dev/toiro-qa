@@ -6,6 +6,7 @@ const root = path.resolve(__dirname, '..');
 const files = [
   'docs/learning/START_HERE.md', 'docs/learning/PROGRESS.md',
   'docs/learning/README.md', 'docs/learning/SESSION_TEMPLATE.md',
+  'docs/learning/NOTION_MATERIALS.md',
   'docs/learning/01-overview.md', 'docs/learning/02-create.md',
   'docs/learning/03-read.md', 'docs/learning/04-update.md',
   'docs/learning/05-delete.md', 'docs/learning/06-security.md',

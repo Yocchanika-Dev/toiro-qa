@@ -7,7 +7,7 @@
 ## 開始時
 
 1. `study-notes` の最新コミットを取得する。mainや検索結果の古いキャッシュで代用しない。
-2. [PROGRESS.md](PROGRESS.md) → [README.md](README.md) → 該当回の教材 → 該当コードの順に読む。
+2. [PROGRESS.md](PROGRESS.md) → [README.md](README.md) → [Notion教材全22件](NOTION_MATERIALS.md) の本文・参照記録 → 該当回の教材 → 該当コードの順に読む。Notion全件の参照方法・未取得時の扱いは一覧の参照ルールに従う。
 3. 読んだブランチ・コミット（取得できなければその旨）・進捗リビジョン・次の一問を短く示す。
 4. 次の問題を一問だけ出し、本人の回答を待つ。説明済み・AIテスト済みを本人理解済みと扱わない。
 
@@ -51,11 +51,18 @@ webbitの学習を引き継いでください。
 最初に以下を最新ブランチから読み、記載された共通手順に従ってください。
 https://github.com/Yocchanika-Dev/toiro-qa/blob/study-notes/docs/learning/START_HERE.md
 https://github.com/Yocchanika-Dev/toiro-qa/blob/study-notes/docs/learning/PROGRESS.md
+https://github.com/Yocchanika-Dev/toiro-qa/blob/study-notes/docs/learning/NOTION_MATERIALS.md
+
+Notion教材は一覧の全22件を対象に本文を参照し、授業の範囲を把握してください。
+全件の取得状況を記録し、未取得・アクセス不可を読了扱いにしないでください。
+学校教材本文を公開Gitへ転載せず、参照URLと必要最小限の技術的要約だけ記録してください。
+各回は関係する授業教材とwebbitの実コードを対応させて説明してください。
 
 読んだコミット・進捗リビジョン・次の一問を短く示し、一問ずつ進めてください。
 読めなければ読めないと伝え、添付のlearning-handoff.mdを使ってください。
 書き込み権限も実際に確認してください。新しい権限付与や認証情報の共有は不要です。
-終了時はSESSION_TEMPLATE.mdの形式で記録し、Git保存できなければ
+終了時はSESSION_TEMPLATE.mdの形式で記録し、sessionsとPROGRESS.mdを更新して
+study-notesへCommit・Pushし、保存後のコミットを読み直してください。Git保存できなければ
 「Git未保存」の持ち帰りMarkdownを返してください。
 教材整備と本人の理解・操作確認を区別し、実装変更やデプロイは行わないでください。
 回答は簡潔に。ただし理解に必要な説明は省かないでください。
